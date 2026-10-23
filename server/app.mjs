@@ -2,7 +2,7 @@
 // db: { query(text, params) → { rows }, exec(sql) }
 import express from "express";
 import Stripe from "stripe";
-import { createHash, randomBytes, scrypt as scryptCb, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, scrypt as scryptCb, timingSafeEqual } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -320,15 +320,41 @@ export function createApp({ db, env = process.env, dist = join(HERE, "..", "dist
   app.use("/api", (_req, res) => res.status(404).json({ error: "No existe" }));
 
   // ---------- Panel del dueño ----------
-  function adminOnly(req) {
-    const pass = env.ADMIN_PASSWORD;
-    const [, b64] = (req.get("authorization") || "").split(" ");
-    const [user, pw] = Buffer.from(b64 || "", "base64").toString().split(":");
-    const ok = !!pass && user === "admin" && pw && pw.length === pass.length && timingSafeEqual(Buffer.from(pw), Buffer.from(pass));
-    if (!ok) throw Object.assign(new Error("Acceso restringido"), { status: 401, basic: true });
+  // Se entra con ADMIN_PASSWORD en un formulario (sirve en cualquier navegador, también en el teléfono).
+  // La sesión es una cookie firmada que dura 30 días; cambiar ADMIN_PASSWORD la invalida.
+  const ADMIN_COOKIE = "oc_admin", ADMIN_DAYS = 30, limitAdmin = limiter(8, 15 * 60_000);
+  const digest = (x) => createHash("sha256").update(String(x)).digest();
+  const adminSign = (exp) => createHmac("sha256", digest("odontocostos-admin:" + env.ADMIN_PASSWORD)).update(String(exp)).digest("base64url");
+  const readCookie = (req, name) => (req.get("cookie") || "").split(";").map((c) => c.trim().split("=")).find(([k]) => k === name)?.[1] || "";
+  function isAdmin(req) {
+    if (!env.ADMIN_PASSWORD) return false;
+    const [exp, sig] = readCookie(req, ADMIN_COOKIE).split(".");
+    if (!exp || !sig || Number(exp) < Date.now()) return false;
+    const want = Buffer.from(adminSign(exp)), got = Buffer.from(sig);
+    return got.length === want.length && timingSafeEqual(got, want);
   }
+  const adminCookie = (req, value, maxAge) => `${ADMIN_COOKIE}=${value}; Path=/admin; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${req.secure ? "; Secure" : ""}`;
+  const page = (body) => `<!doctype html><html lang="es-MX"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Panel · OdontoCostos</title>
+<style>body{margin:0;font:15px/1.5 system-ui,sans-serif;background:#f3f6f3;color:#10201b}main{max-width:1100px;margin:0 auto;padding:24px 16px 64px}h1{font-size:28px;margin:0 0 4px}h2{font-size:19px;margin:32px 0 10px}
+.top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.k{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}.k div{background:#fff;border:1px solid #d9e2dd;border-radius:14px;padding:14px}.k b{display:block;font-size:28px}
+table{width:100%;border-collapse:collapse;background:#fff;border:1px solid #d9e2dd;border-radius:12px;overflow:hidden}td,th{text-align:left;padding:8px 10px;border-bottom:1px solid #e9efeb;vertical-align:top}th{font-size:13px;color:#4a5b55}.w{overflow-x:auto}
+form{display:flex;gap:8px;flex-wrap:wrap}input{font:inherit;padding:10px 12px;border:1px solid #d9e2dd;border-radius:10px;min-width:0;width:100%;max-width:340px;box-sizing:border-box;background:#fff}
+button{font:inherit;font-weight:700;padding:10px 16px;border:0;border-radius:10px;background:#0b7a61;color:#fff;cursor:pointer}button.ghost{background:#fff;color:#10201b;border:1px solid #d9e2dd}.m{color:#4a5b55}
+.login{flex-direction:column;align-items:stretch;max-width:380px;margin:12vh auto 0;background:#fff;border:1px solid #d9e2dd;border-radius:18px;padding:24px;gap:12px}.login input[type=password],.login input[type=text]{max-width:none;font-size:17px}
+.login label{font-weight:700}.login .chk{display:flex;gap:8px;align-items:center;font-weight:400}.login .chk input{width:auto}.err{background:#fdecec;color:#9b1c1c;border-radius:10px;padding:10px 12px;margin:0}
+.temp{font:700 28px ui-monospace,monospace;letter-spacing:.06em;background:#fff;border:1px solid #d9e2dd;border-radius:12px;padding:12px 16px;display:inline-block}</style></head><body><main>${body}</main></body></html>`;
+  const loginPage = (error = "") => page(`<form class="login" method="post" action="/admin/login">
+<h1>Panel de OdontoCostos</h1><p class="m" style="margin:0">Solo para el dueño.</p>
+<label for="pw">Contraseña del panel</label>
+<input id="pw" name="password" type="password" autocomplete="current-password" autocapitalize="off" autocorrect="off" spellcheck="false" required autofocus>
+<label class="chk"><input type="checkbox" onchange="document.getElementById('pw').type=this.checked?'text':'password'">Mostrar contraseña</label>
+${error ? `<p class="err" role="alert">${esc(error)}</p>` : ""}<button>Entrar al panel</button></form>`);
+
   app.get("/admin", async (req, res) => {
-    adminOnly(req);
+    res.set("cache-control", "no-store");
+    if (!env.ADMIN_PASSWORD) return res.status(503).type("html").send(page("<h1>Panel de OdontoCostos</h1><p>Falta poner ADMIN_PASSWORD en las variables del servicio en Render.</p>"));
+    if (!isAdmin(req)) return res.type("html").send(loginPage());
     const [stats] = await q(`select (select count(*) from users)::int as users, (select count(*) from users where created_at > now() - interval '7 days')::int as week,
       (select count(*) from clinic_states)::int as with_data, (select count(*) from feedback)::int as feedback`);
     const subs = await q("select plan, interval, count(*)::int as n from subscriptions where status in ('active','trialing','past_due') group by plan, interval");
@@ -339,12 +365,7 @@ export function createApp({ db, env = process.env, dist = join(HERE, "..", "dist
     const users = await q("select u.email, u.created_at, u.trial_ends_at, s.plan, s.status from users u left join subscriptions s on s.user_id = u.id order by u.created_at desc limit 200");
     const d = (x) => esc(new Date(x).toLocaleString("es-MX", { timeZone: "America/Mexico_City", dateStyle: "medium", timeStyle: "short" }));
     const VOTE = { si: "Sí pagaría Pro", talvez: "Tal vez, a otro precio", no: "No" };
-    res.set("cache-control", "no-store").type("html").send(`<!doctype html><html lang="es-MX"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Panel · OdontoCostos</title>
-<style>body{margin:0;font:15px/1.5 system-ui,sans-serif;background:#f3f6f3;color:#10201b}main{max-width:1100px;margin:0 auto;padding:24px 16px 64px}h1{font-size:28px;margin:0 0 4px}h2{font-size:19px;margin:32px 0 10px}
-.k{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}.k div{background:#fff;border:1px solid #d9e2dd;border-radius:14px;padding:14px}.k b{display:block;font-size:28px}
-table{width:100%;border-collapse:collapse;background:#fff;border:1px solid #d9e2dd;border-radius:12px;overflow:hidden}td,th{text-align:left;padding:8px 10px;border-bottom:1px solid #e9efeb;vertical-align:top}th{font-size:13px;color:#4a5b55}.w{overflow-x:auto}
-form{display:flex;gap:8px;flex-wrap:wrap}input{font:inherit;padding:8px 10px;border:1px solid #d9e2dd;border-radius:10px;min-width:260px}button{font:inherit;font-weight:700;padding:8px 14px;border:0;border-radius:10px;background:#0b7a61;color:#fff;cursor:pointer}.m{color:#4a5b55}</style></head><body><main>
-<h1>Panel de OdontoCostos</h1><p class="m">${beta ? "Beta gratis: el cobro con Stripe todavía no está activo." : "Cobro activo."} ${email ? "Recuperar contraseña: por correo, automático." : "Recuperar contraseña: manual (las solicitudes llegan a Mensajes de soporte)."}</p>
+    res.type("html").send(page(`<div class="top"><h1>Panel de OdontoCostos</h1><form method="post" action="/admin/logout"><button class="ghost">Salir</button></form></div><p class="m">${beta ? "Beta gratis: el cobro con Stripe todavía no está activo." : "Cobro activo."} ${email ? "Recuperar contraseña: por correo, automático." : "Recuperar contraseña: manual (las solicitudes llegan a Mensajes de soporte)."}</p>
 <div class="k"><div>Cuentas<b>${stats.users}</b></div><div>Nuevas en 7 días<b>${stats.week}</b></div><div>Con datos guardados<b>${stats.with_data}</b></div><div>Suscripciones activas<b>${subs.reduce((s, x) => s + x.n, 0)}</b></div><div>Ingreso mensual<b>$${Math.round(mrr).toLocaleString("es-MX")}</b></div><div>Respuestas a la encuesta<b>${stats.feedback}</b></div></div>
 <h2>¿Pagarían?</h2><div class="w"><table><tr><th>Respuesta</th><th>Votos</th></tr>${votes.map((v) => `<tr><td>${esc(VOTE[v.would_pay] || v.would_pay)}</td><td>${v.n}</td></tr>`).join("") || '<tr><td colspan="2" class="m">Sin respuestas todavía</td></tr>'}</table></div>
 <h2>Comentarios</h2><div class="w"><table><tr><th>Fecha</th><th>Correo</th><th>Respuesta</th><th>Comentario</th></tr>${fb.map((f) => `<tr><td>${d(f.created_at)}</td><td>${esc(f.email || "sin cuenta")}</td><td>${esc(VOTE[f.would_pay] || f.would_pay)}</td><td>${esc(f.comment || "")}</td></tr>`).join("") || '<tr><td colspan="4" class="m">Sin comentarios</td></tr>'}</table></div>
@@ -352,18 +373,30 @@ form{display:flex;gap:8px;flex-wrap:wrap}input{font:inherit;padding:8px 10px;bor
 <h2>Restablecer la contraseña de un dentista</h2><p class="m">Genera una contraseña temporal para mandársela por WhatsApp. Su sesión se cierra en todos sus dispositivos.</p>
 <form method="post" action="/admin/reset"><input name="email" type="email" required placeholder="correo@consultorio.mx"><button>Generar contraseña temporal</button></form>
 <h2>Cuentas</h2><div class="w"><table><tr><th>Correo</th><th>Alta</th><th>Prueba hasta</th><th>Suscripción</th></tr>${users.map((u) => `<tr><td>${esc(u.email)}</td><td>${d(u.created_at)}</td><td>${d(u.trial_ends_at)}</td><td>${u.plan ? esc(u.plan + ", " + u.status) : '<span class="m">ninguna</span>'}</td></tr>`).join("")}</table></div>
-</main></body></html>`);
+`));
   });
+  app.post("/admin/login", express.urlencoded({ extended: false }), (req, res) => {
+    res.set("cache-control", "no-store");
+    if (!limitAdmin(req.ip)) return res.status(429).type("html").send(loginPage("Demasiados intentos. Espera 15 minutos e intenta de nuevo."));
+    const ok = !!env.ADMIN_PASSWORD && timingSafeEqual(digest(String(req.body?.password || "").trim()), digest(env.ADMIN_PASSWORD));
+    if (!ok) return res.status(401).type("html").send(loginPage("Esa no es la contraseña del panel. Revisa mayúsculas y minúsculas."));
+    const exp = Date.now() + ADMIN_DAYS * 864e5;
+    res.set("set-cookie", adminCookie(req, `${exp}.${adminSign(exp)}`, ADMIN_DAYS * 86400)).redirect(303, "/admin");
+  });
+  app.post("/admin/logout", (req, res) => { res.set("set-cookie", adminCookie(req, "", 0)).redirect(303, "/admin"); });
+  // Contraseña temporal sin letras que se confunden (l, I, 1, O, 0), para dictarla o mandarla por WhatsApp.
+  const TEMP_CHARS = "abcdefghjkmnpqrstuvwxyz23456789";
+  const tempPassword = () => Array.from(randomBytes(10), (b) => TEMP_CHARS[b % TEMP_CHARS.length]).join("");
   app.post("/admin/reset", express.urlencoded({ extended: false }), async (req, res) => {
-    adminOnly(req);
+    if (!isAdmin(req)) return res.redirect(303, "/admin");
     const email = String(req.body?.email || "").trim().toLowerCase();
     const u = await one("select id from users where email = $1", [email]);
-    if (!u) throw httpError(404, "No hay una cuenta con ese correo.");
-    const temp = randomBytes(6).toString("base64url");
+    if (!u) return res.status(404).type("html").send(page(`<h1>No hay una cuenta con ese correo</h1><p><b>${esc(email)}</b> no está registrado. Revisa cómo lo escribió en Cuentas.</p><p><a href="/admin">Volver al panel</a></p>`));
+    const temp = tempPassword();
     await q("update users set password_hash = $1 where id = $2", [await hashPassword(temp), u.id]);
     await q("delete from password_resets where user_id = $1", [u.id]);
     await q("delete from sessions where user_id = $1", [u.id]);
-    res.type("html").send(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><body style="font:16px system-ui;padding:24px"><p>Contraseña temporal para <b>${esc(email)}</b>:</p><p style="font:700 24px ui-monospace,monospace">${esc(temp)}</p><p>Pídele que la cambie en Cuenta. <a href="/admin">Volver al panel</a></p></body>`);
+    res.set("cache-control", "no-store").type("html").send(page(`<h1>Contraseña temporal</h1><p>Para <b>${esc(email)}</b>:</p><p class="temp">${esc(temp)}</p><p>Mándasela y pídele que la cambie en Cuenta → Cambiar mi contraseña.</p><p><a href="/admin">Volver al panel</a></p>`));
   });
 
   // ---------- Archivos ----------
@@ -375,7 +408,6 @@ form{display:flex;gap:8px;flex-wrap:wrap}input{font:inherit;padding:8px 10px;bor
   // eslint-disable-next-line no-unused-vars
   app.use((err, req, res, _next) => {
     const status = err.status || (err.type === "entity.too.large" ? 413 : 500);
-    if (err.basic) return res.status(401).set("WWW-Authenticate", 'Basic realm="OdontoCostos", charset="UTF-8"').send("Acceso restringido");
     if (status >= 500 && !err.public) console.error(err);
     const msg = err.public ? err.message
       : status === 413 ? "Tus datos pesan demasiado. Prueba con un logo más ligero."

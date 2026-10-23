@@ -9,7 +9,7 @@ import { fakeStripe, serve, testDb } from "./testdb.mjs";
 const SECRET = "whsec_live_test";
 const db = await testDb(), db2 = await testDb();
 const mail = { sent: [], send: async (m) => { mail.sent.push(m); } };
-const beta = await serve({ db, mailer: mail, env: { SUPPORT_EMAIL: "hola@odontocostos.com", APP_URL: "https://odontocostos.test" } });
+const beta = await serve({ db, mailer: mail, env: { SUPPORT_EMAIL: "hola@odontocostos.com", APP_URL: "https://odontocostos.test", ADMIN_PASSWORD: "cRTT2gtLsnlQsbaWAq6l" } });
 // El correo trae la dirección pública; en la prueba se abre la misma ruta en el servidor local.
 const mailLink = () => { const u = new URL(mail.sent[0].text.match(/https:\/\/\S+reset=[\w-]+/)[0]); return beta.base + u.pathname + u.search; };
 let billBase = "";
@@ -127,6 +127,19 @@ await t("teléfono: la sesión sigue al recargar", async () => {
   await m.reload(); await m.waitForSelector(".app");
   await m.click(".tab:has-text('Más')"); await m.click("button[aria-label='Tu cuenta']");
   await m.waitForSelector("text=Estás en la");
+});
+
+await t("panel en el teléfono: se entra con la contraseña y se queda abierto", async () => {
+  const a = await page(beta.base, 390);
+  await a.goto(beta.base + "/admin"); await a.waitForSelector("text=Contraseña del panel");
+  await a.fill("#pw", "cRTT2gtLsnIQsbaWAq6l"); await a.click("button:has-text('Entrar al panel')");
+  await a.waitForSelector("text=Esa no es la contraseña");
+  await a.fill("#pw", "cRTT2gtLsnlQsbaWAq6l"); await a.click("button:has-text('Entrar al panel')");
+  await a.waitForSelector("h2:has-text('Mensajes de soporte')"); await a.waitForSelector("td:has-text('ana@consultorio.mx')");
+  await a.goto(beta.base + "/admin"); await a.waitForSelector("h2:has-text('Mensajes de soporte')");
+  await a.fill("input[name=email]", "ana@consultorio.mx"); await a.click("button:has-text('Generar contraseña temporal')");
+  await a.waitForSelector(".temp");
+  await a.click("text=Volver al panel"); await a.click("button:has-text('Salir')"); await a.waitForSelector("text=Contraseña del panel");
 });
 
 // ---------- Cobro activo ----------

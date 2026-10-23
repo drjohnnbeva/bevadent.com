@@ -44,7 +44,7 @@ Las capturas del recorrido quedan en `e2e/out/`.
 
 ## Panel del dueño
 
-`https://odontocostos.com/admin`, usuario `admin` y la contraseña de `ADMIN_PASSWORD`. Muestra cuentas, suscripciones, ingreso mensual, respuestas de la encuesta y mensajes de soporte. Desde ahí se genera una contraseña temporal para quien olvidó la suya.
+`https://odontocostos.com/admin`: pide la contraseña de `ADMIN_PASSWORD` en una página normal (sirve en el teléfono) y queda abierto 30 días en ese navegador; "Salir" lo cierra. Cambiar `ADMIN_PASSWORD` en Render cierra el panel en todos lados. Muestra cuentas, suscripciones, ingreso mensual, respuestas de la encuesta y mensajes de soporte. Desde ahí se genera una contraseña temporal para quien olvidó la suya.
 
 ## ¿Olvidaste tu contraseña?
 

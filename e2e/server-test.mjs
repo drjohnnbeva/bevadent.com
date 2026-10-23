@@ -15,7 +15,6 @@ const client = (base) => {
   };
   return call;
 };
-const basic = (pw) => ({ authorization: "Basic " + Buffer.from("admin:" + pw).toString("base64") });
 const demo = { clinic: { rent: 12000 }, treatments: {}, order: [], months: {} };
 
 // ---------- Sin base de datos ----------
@@ -113,22 +112,58 @@ const mail = { sent: [], send: async (m) => { mail.sent.push(m); } };
     assert.equal((await api("/api/support", { method: "POST", body: { email: "x", message: "hola" } })).status, 400);
     assert.equal((await api("/api/support", { method: "POST", body: { email: "luis@dental.mx", message: "Olvidé mi contraseña" } })).status, 201);
   });
-  await t("panel: pide contraseña", async () => {
-    assert.equal((await api("/admin")).status, 401);
-    const r = await api("/admin", { headers: basic("mala") }); assert.equal(r.status, 401); assert.match(r.text, /restringido/);
+  const form = (path, body, cookie) => fetch(s.base + path, { method: "POST", redirect: "manual", headers: { "content-type": "application/x-www-form-urlencoded", ...(cookie && { cookie }) }, body: new URLSearchParams(body) });
+  let adminC = "";
+  await t("panel: sin sesión muestra el formulario de contraseña, sin datos", async () => {
+    const r = await api("/admin");
+    assert.equal(r.status, 200); assert.match(r.text, /Contraseña del panel/); assert.match(r.text, /action="\/admin\/login"/);
+    assert.ok(!r.text.includes("ana@consultorio.mx")); assert.ok(!r.text.includes("WWW-Authenticate"));
+  });
+  await t("panel: contraseña equivocada avisa", async () => {
+    const r = await form("/admin/login", { password: "mala" });
+    assert.equal(r.status, 401); assert.match(await r.text(), /Esa no es la contraseña/); assert.equal(r.headers.get("set-cookie"), null);
+  });
+  await t("panel: la contraseña correcta (con espacios al pegar) abre el panel 30 días", async () => {
+    const r = await form("/admin/login", { password: "  " + ADMIN + " " });
+    assert.equal(r.status, 303); assert.equal(r.headers.get("location"), "/admin");
+    const c = r.headers.get("set-cookie");
+    assert.match(c, /^oc_admin=\d+\.[\w-]+; Path=\/admin; HttpOnly; SameSite=Strict; Max-Age=2592000/);
+    adminC = c.split(";")[0];
   });
   await t("panel: muestra cuentas, encuesta y mensajes, con texto escapado", async () => {
-    const r = await api("/admin", { headers: basic(ADMIN) });
+    const r = await api("/admin", { headers: { cookie: adminC } });
     assert.equal(r.status, 200);
-    for (const s of ["ana@consultorio.mx", "luis@dental.mx", "Olvidé mi contraseña", "Sí pagaría Pro", "&lt;script&gt;"]) assert.ok(r.text.includes(s), s);
+    for (const s of ["ana@consultorio.mx", "luis@dental.mx", "Olvidé mi contraseña", "Sí pagaría Pro", "&lt;script&gt;", "Salir"]) assert.ok(r.text.includes(s), s);
     assert.ok(!r.text.includes("<script>alert"));
   });
-  await t("panel: contraseña temporal cierra sesiones y deja entrar", async () => {
-    const r = await fetch(s.base + "/admin/reset", { method: "POST", headers: { ...basic(ADMIN), "content-type": "application/x-www-form-urlencoded" }, body: "email=ana%40consultorio.mx" });
-    const temp = (await r.text()).match(/monospace">([^<]+)</)[1];
+  await t("panel: una cookie inventada o vencida no entra", async () => {
+    for (const c of ["oc_admin=9999999999999.falsa", `oc_admin=${Date.now() - 1000}.${adminC.split(".")[1]}`]) assert.match((await api("/admin", { headers: { cookie: c } })).text, /Contraseña del panel/);
+  });
+  await t("panel: restablecer sin sesión no hace nada", async () => {
+    const r = await form("/admin/reset", { email: "ana@consultorio.mx" });
+    assert.equal(r.status, 303);
+    assert.equal((await api("/api/me", { token: tok })).status, 200);
+  });
+  await t("panel: correo que no existe lo dice", async () => {
+    const r = await form("/admin/reset", { email: "nadie@x.mx" }, adminC);
+    assert.equal(r.status, 404); assert.match(await r.text(), /No hay una cuenta/);
+  });
+  await t("panel: contraseña temporal fácil de dictar, cierra sesiones y deja entrar", async () => {
+    const r = await form("/admin/reset", { email: "ana@consultorio.mx" }, adminC);
+    const temp = (await r.text()).match(/class="temp">([^<]+)</)[1];
+    assert.match(temp, /^[a-hjkmnp-z2-9]{10}$/);
     assert.equal((await api("/api/me", { token: tok })).status, 401);
     const l = await api("/api/auth/login", { method: "POST", body: { email: "ana@consultorio.mx", password: temp } });
     assert.equal(l.status, 200); tok = l.json.token;
+  });
+  await t("panel: salir borra la sesión", async () => {
+    const r = await form("/admin/logout", {}, adminC);
+    assert.equal(r.status, 303); assert.match(r.headers.get("set-cookie"), /^oc_admin=; .*Max-Age=0/);
+  });
+  await t("panel: demasiados intentos se frenan", async () => {
+    let last = 0;
+    for (let i = 0; i < 9; i++) last = (await form("/admin/login", { password: "nop" })).status;
+    assert.equal(last, 429);
   });
   await t("cambiar contraseña: valida la actual y cierra las otras sesiones", async () => {
     const l = await api("/api/auth/signup", { method: "POST", body: { email: "beto@sonrisa.mx", password: "primera-123" } });

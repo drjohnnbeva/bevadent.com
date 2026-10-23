@@ -1,0 +1,73 @@
+/*
+ * OdontoCostos: sistema visual.
+ * Verde quirúrgico (el de la bata) sobre blanco esmalte; rosa encía solo para momentos de marca.
+ * Red Hat Display para títulos y montos, Red Hat Text para leer, Red Hat Mono solo en el ticket.
+ */
+:root {
+  --paper: #f3f6f3;      /* esmalte: fondo */
+  --panel: #ffffff;
+  --wash: #e9efeb;       /* zonas hundidas, pistas de barras */
+  --ink: #10201b;
+  --ink-2: #4a5b55;      /* texto secundario: 6.3:1 sobre el fondo */
+  --rule: #d9e2dd;
+  --scrub: #0b7a61;      /* acento: 5.3:1 con texto blanco */
+  --scrub-ink: #ffffff;
+  --scrub-text: #08654f;
+  --scrub-wash: #dff0e8;
+  --gum: #e0607a;        /* rosa encía */
+  --gum-text: #b73a55;
+  --gum-wash: #fbe7ec;
+  --amber: #8f5300; --amber-wash: #fbefdc;
+  --red: #b93a2b; --red-wash: #fbe7e3;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4;
+  --shadow-1: 0 1px 2px rgba(16, 32, 27, .06), 0 1px 1px rgba(16, 32, 27, .03);
+  --shadow-2: 0 10px 30px -12px rgba(16, 32, 27, .22), 0 2px 6px rgba(16, 32, 27, .06);
+  --f-display: "Red Hat Display", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-text: "Red Hat Text", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "Red Hat Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --r-panel: 20px; --r-ctl: 12px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0a1311; --panel: #101c19; --wash: #0d1715; --ink: #e5eeea; --ink-2: #9cb0a9; --rule: #21312c;
+    --scrub: #3cc39b; --scrub-ink: #04140f; --scrub-text: #63d7b2; --scrub-wash: #12302a;
+    --gum: #f08ba0; --gum-text: #f6a2b4; --gum-wash: #33171e;
+    --amber: #f1b35d; --amber-wash: #2c2213; --red: #f78a72; --red-wash: #331912;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181;
+    --shadow-1: none; --shadow-2: 0 12px 30px -12px rgba(0, 0, 0, .6);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0a1311; --panel: #101c19; --wash: #0d1715; --ink: #e5eeea; --ink-2: #9cb0a9; --rule: #21312c;
+  --scrub: #3cc39b; --scrub-ink: #04140f; --scrub-text: #63d7b2; --scrub-wash: #12302a;
+  --gum: #f08ba0; --gum-text: #f6a2b4; --gum-wash: #33171e;
+  --amber: #f1b35d; --amber-wash: #2c2213; --red: #f78a72; --red-wash: #331912;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181;
+  --shadow-1: none; --shadow-2: 0 12px 30px -12px rgba(0, 0, 0, .6);
+  color-scheme: dark;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-tap-highlight-color: transparent; -webkit-text-size-adjust: 100%; }
+html, body { background: var(--paper); color: var(--ink); }
+body { margin: 0; font: 400 15.5px/1.55 var(--f-text); font-feature-settings: "tnum" 0; }
+h1, h2, h3 { margin: 0; font-family: var(--f-display); text-wrap: balance; letter-spacing: -0.015em; }
+p { margin: 0; }
+a { color: var(--scrub-text); text-underline-offset: 3px; }
+img { max-width: 100%; }
+:focus-visible { outline: 2px solid var(--scrub); outline-offset: 2px; }
+.num { font-variant-numeric: tabular-nums lining-nums; }
+
+/* Montos: el signo de pesos va más chico y arriba, como en un ticket */
+.money { font-family: var(--f-display); font-weight: 700; letter-spacing: -0.03em; font-variant-numeric: tabular-nums lining-nums; line-height: 1; white-space: nowrap; }
+.money .cur { font-size: .52em; vertical-align: .62em; margin-right: .06em; font-weight: 600; letter-spacing: 0; }
+.money .sign { margin-right: .04em; }
+.money.neg { color: var(--red); }
+.money.xl { font-size: clamp(44px, 9vw, 64px); }
+.money.lg { font-size: 36px; }
+.money.md { font-size: 24px; }
+.money.sm { font-size: 22px; font-weight: 600; }
+
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }

@@ -27,6 +27,12 @@ export function Home() {
           <button className="btn sm start" onClick={() => go(PATH.clinic)}>Poner mis datos</button>
         </div>
       )}
+      {st.edited && cloud.mode === "live" && cloud.cfg?.accounts && !cloud.session && (
+        <div className="note good row between">
+          <span>{cloud.cfg.beta ? "Crea tu cuenta gratis: guardas tus datos en la nube y usas Pro sin costo durante la beta." : "Crea tu cuenta gratis: guardas tus datos en la nube y pruebas Pro " + cloud.cfg.trialDays + " días."}</span>
+          <button className="btn sm" onClick={() => go(PATH.account)}>Crear cuenta</button>
+        </div>
+      )}
       {trialDays !== null && (
         <div className="note good row between">
           <span>Tienes Pro gratis por {trialDays} {trialDays === 1 ? "día" : "días"} más. Después sigues en Gratis, con tus datos guardados.</span>
@@ -97,7 +103,7 @@ function Feedback() {
   const [ans, setAns] = useState<string>(""), [comment, setComment] = useState("");
   if (done) return null;
   const send = async () => {
-    try { await sendFeedback(ans, comment, st.plan, cloud.session?.user.id); } catch { /* se guarda solo el aviso local */ }
+    if (cloud.mode === "live") try { await sendFeedback(ans, comment, st.plan); } catch { /* se guarda solo el aviso local */ }
     try { localStorage.setItem(FB_KEY, ans); } catch { /* sin almacenamiento */ }
     setDone(true); toast("Gracias. Lo leemos todo.");
   };

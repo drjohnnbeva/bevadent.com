@@ -1,6 +1,5 @@
-import type { Session } from "@supabase/supabase-js";
 import { createContext, useContext } from "react";
-import type { Config, Entitlement } from "../lib/cloud";
+import type { Config, Entitlement, Session } from "../lib/cloud";
 import type { Saver } from "../lib/files";
 import type { State } from "../lib/model";
 
@@ -13,6 +12,10 @@ export interface Cloud {
   ent: Entitlement;
   sync: "idle" | "saving" | "saved" | "error";
   refresh: () => Promise<void>;
+  /** Después de entrar o crear cuenta */
+  signedIn: (s: Session, e: Entitlement) => void;
+  /** Cierra la sesión y deja los datos de ejemplo en el dispositivo */
+  signedOut: () => void;
 }
 export interface AppCtx {
   /** Estado con el plan vigente ya aplicado */

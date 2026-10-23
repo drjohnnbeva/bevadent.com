@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { fetchCloudState, fetchEntitlement, FREE_ENT, initSupabase, loadConfig, saveCloudState, type Config, type Entitlement } from "../lib/cloud";
+import { ApiError, fetchCloudState, fetchMe, FREE_ENT, hasToken, loadConfig, saveCloudState, type Config, type Entitlement, type Session } from "../lib/cloud";
 import { getSaver, type Saver } from "../lib/files";
 import { loadLocal, makeDemo, normalize, saveLocal, type State } from "../lib/model";
 import { can, PLANS, type PlanId } from "../lib/plans";
@@ -69,52 +69,61 @@ export function App() {
   // Conexión con el servidor: cuentas, nube y cobro.
   useEffect(() => {
     if (__PREVIEW__) return;
-    let unsub: (() => void) | undefined;
     (async () => {
       const c = await loadConfig();
       if (!c) { setMode(import.meta.env.DEV ? "preview" : "live"); return; }
-      const sb = await initSupabase(c);
-      const { data } = await sb.auth.getSession();
-      setCfg(c); setSession(data.session); setMode("live");
-      unsub = sb.auth.onAuthStateChange((_e, s) => setSession(s)).data.subscription.unsubscribe;
+      setCfg(c);
+      if (c.accounts && hasToken()) {
+        try { const me = await fetchMe(); setSession(me.session); setEnt(me.ent); }
+        catch { /* sesión vencida o sin conexión: queda como invitado con sus datos */ }
+      }
+      setMode("live");
     })();
-    return () => unsub?.();
   }, []);
 
   const refresh = useCallback(async () => {
-    const uid = session?.user.id;
-    if (uid) setEnt(await fetchEntitlement(uid));
-  }, [session?.user.id]);
+    if (session) setEnt((await fetchMe()).ent);
+  }, [session]);
+  const expired = useCallback((e: unknown) => {
+    if (e instanceof ApiError && e.status === 401) { setSession(null); toast("Tu sesión terminó. Entra de nuevo para seguir guardando en la nube."); }
+  }, [toast]);
+  const signedIn = useCallback((s: Session, e: Entitlement) => { setSession(s); setEnt(e); }, []);
+  const signedOut = useCallback(() => {
+    setSession(null); setSync("idle");
+    store.del(LINK_KEY);
+    const d = makeDemo(); saveLocal(d); setSt(d);
+  }, []);
 
   // Al entrar: trae los datos de la cuenta, o sube los de este dispositivo si la cuenta es nueva.
   useEffect(() => {
     const uid = session?.user.id;
     ready.current = false;
-    if (!uid) {
-      setEnt(FREE_ENT);
-      if (store.get(LINK_KEY)) { store.del(LINK_KEY); const d = makeDemo(); saveLocal(d); setSt(d); }
-      return;
-    }
+    if (!uid) { setEnt(FREE_ENT); return; }
     let on = true;
     (async () => {
       try {
-        const [e, remote] = await Promise.all([fetchEntitlement(uid), fetchCloudState(uid)]);
+        const remote = await fetchCloudState();
         if (!on) return;
-        const local = stRef.current, linked = store.get(LINK_KEY) === uid;
+        const local = stRef.current, link = store.get(LINK_KEY), mine = link === uid, other = !!link && !mine;
         if (remote) {
-          if (linked && (local.updatedAt || 0) > remote.updatedAt) await saveCloudState(uid, local);
+          if (mine && (local.updatedAt || 0) > remote.updatedAt) await saveCloudState(local);
           else {
-            if (!linked && local.edited) store.set(GUEST_BACKUP, JSON.stringify(local));
+            if (!link && local.edited) store.set(GUEST_BACKUP, JSON.stringify(local));
             const n = normalize(remote.data);
             skipSave.current = true; saveLocal(n); setSt(n);
           }
-        } else await saveCloudState(uid, local);
+        } else if (other) {
+          // Lo que hay en el dispositivo es de otra cuenta: la nueva empieza con el ejemplo.
+          const d = makeDemo();
+          skipSave.current = true; saveLocal(d); setSt(d);
+          await saveCloudState(d);
+        } else await saveCloudState(local);
         store.set(LINK_KEY, uid);
-        ready.current = true; setEnt(e); setSync("saved");
-      } catch { if (on) setSync("error"); }
+        ready.current = true; setSync("saved");
+      } catch (e) { if (on) { setSync("error"); expired(e); } }
     })();
     return () => { on = false; };
-  }, [session?.user.id]);
+  }, [session?.user.id, expired]);
 
   // Guarda en la nube un momento después de cada cambio.
   useEffect(() => {
@@ -124,9 +133,9 @@ export function App() {
     clearTimeout(saveTimer.current);
     setSync("saving");
     saveTimer.current = window.setTimeout(() => {
-      saveCloudState(uid, stRef.current).then(() => setSync("saved"), () => setSync("error"));
+      saveCloudState(stRef.current).then(() => setSync("saved"), (e) => { setSync("error"); expired(e); });
     }, 1200);
-  }, [st, session?.user.id]);
+  }, [st, session?.user.id, expired]);
 
   // Regreso del pago: el webhook puede tardar unos segundos en activar el plan.
   useEffect(() => {
@@ -138,7 +147,7 @@ export function App() {
     let n = 0;
     const tick = window.setInterval(async () => {
       n++;
-      const e = await fetchEntitlement(session.user.id).catch(() => null);
+      const e = await fetchMe().then((m) => m.ent, () => null);
       if (e && e.source === "subscription") { setEnt(e); toast("Listo: ya tienes " + PLANS[e.plan].name); clearInterval(tick); }
       else if (n >= 10) clearInterval(tick);
     }, 2500);
@@ -152,9 +161,10 @@ export function App() {
     if (to[h]) navigate(to[h], true);
   }, []);
 
-  const plan: PlanId = mode === "preview" ? st.plan : ent.plan;
+  // Sin base de datos todavía, la beta abre Pro para todos en su dispositivo.
+  const plan: PlanId = mode === "preview" ? st.plan : session ? ent.plan : cfg?.beta && !cfg.accounts ? "pro" : "free";
   const view = useMemo(() => ({ ...st, plan }), [st, plan]);
-  const cloud: Cloud = { mode, cfg, session, ent, sync, refresh };
+  const cloud: Cloud = { mode, cfg, session, ent, sync, refresh, signedIn, signedOut };
   const ctx: AppCtx = { st: view, set, go: navigate, toast, wide, saver, cloud };
 
   return (
@@ -222,14 +232,20 @@ function Side({ route }: { route: Route }) {
         {cloud.mode === "live" && cloud.session ? (
           <>
             <span className="muted small ellipsis">{cloud.session.user.email}</span>
-            <div className="row between"><b>Plan {PLANS[st.plan].name}</b>{cloud.ent.source === "trial" && <span className="pill good">Prueba</span>}</div>
+            <div className="row between"><b>Plan {PLANS[st.plan].name}</b>{cloud.ent.source === "trial" && <span className="pill good">Prueba</span>}{cloud.ent.source === "beta" && <span className="pill good">Beta</span>}</div>
             <div className="row gap8"><button className="btn ghost sm grow" onClick={() => navigate(PATH.plans)}>Planes</button><button className="btn ghost sm grow" aria-current={cur(["account"])} onClick={() => navigate(PATH.account)}>Cuenta</button></div>
           </>
-        ) : cloud.mode === "live" ? (
+        ) : cloud.mode === "live" && cloud.cfg?.accounts ? (
           <>
             <b>Guarda tus datos en la nube</b>
-            <span className="muted small">Crea tu cuenta y prueba Pro gratis.</span>
+            <span className="muted small">{cloud.cfg.beta ? "Crea tu cuenta y usa Pro gratis durante la beta." : "Crea tu cuenta y prueba Pro gratis."}</span>
             <button className="btn sm" onClick={() => navigate(PATH.account)}>Crear cuenta o entrar</button>
+          </>
+        ) : cloud.mode === "live" && cloud.cfg?.beta ? (
+          <>
+            <div className="row between"><b>Plan Pro</b><span className="pill good">Beta</span></div>
+            <span className="muted small">Gratis mientras estamos en beta. Tus datos se guardan en este dispositivo.</span>
+            <button className="btn ghost sm" aria-current={cur(["backup"])} onClick={() => navigate(PATH.backup)}>Respaldar mis datos</button>
           </>
         ) : (
           <>

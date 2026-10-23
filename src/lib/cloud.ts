@@ -1,101 +1,102 @@
-import type { Session, SupabaseClient } from "@supabase/supabase-js";
 import type { State } from "./model";
 import type { Interval, PlanId } from "./plans";
 
 /** Lo que el servidor publica en /api/config. Sin servidor (vista previa) no hay nube ni cobro. */
 export interface Config {
-  supabaseUrl: string;
-  supabaseAnonKey: string;
+  /** Hay base de datos: se pueden crear cuentas y guardar en la nube */
+  accounts: boolean;
   billing: boolean;
+  /** Beta: el cobro todavía no está activo y Pro es gratis */
+  beta: boolean;
   founder: boolean;
-  google: boolean;
+  trialDays: number;
   supportEmail: string;
 }
 export interface Entitlement {
   plan: PlanId;
-  source: "free" | "trial" | "subscription";
+  source: "free" | "trial" | "subscription" | "beta";
   trialEndsAt?: string;
   status?: string;
   interval?: string;
   periodEnd?: string;
   cancelAtPeriodEnd?: boolean;
 }
+export interface User { id: string; email: string }
+export interface Session { user: User }
 export const FREE_ENT: Entitlement = { plan: "free", source: "free" };
 
-let sb: SupabaseClient | null = null;
-export const supabase = () => sb;
+const TOKEN_KEY = "odontocostos.session";
+const token = {
+  get: () => { try { return localStorage.getItem(TOKEN_KEY); } catch { return null; } },
+  set: (t: string) => { try { localStorage.setItem(TOKEN_KEY, t); } catch { /* sin almacenamiento */ } },
+  del: () => { try { localStorage.removeItem(TOKEN_KEY); } catch { /* sin almacenamiento */ } },
+};
+export const hasToken = () => !!token.get();
+
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number) { super(message); }
+}
+async function api<T>(path: string, method = "GET", body?: unknown): Promise<T> {
+  const t = token.get();
+  let r: Response;
+  try {
+    r = await fetch(path, {
+      method,
+      headers: { accept: "application/json", ...(body !== undefined && { "content-type": "application/json" }), ...(t && { authorization: "Bearer " + t }) },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  } catch {
+    throw new ApiError("Sin conexión. Revisa tu internet e intenta de nuevo.", 0);
+  }
+  const j = await r.json().catch(() => ({}));
+  if (r.status === 401 && t) token.del();
+  if (!r.ok) throw new ApiError(j.error || "Algo falló. Intenta de nuevo en un momento.", r.status);
+  return j as T;
+}
 
 export async function loadConfig(): Promise<Config | null> {
   if (__PREVIEW__) return null;
   try {
     const r = await fetch("/api/config", { headers: { accept: "application/json" } });
-    if (!r.ok) return null;
-    const c = (await r.json()) as Config;
-    return c.supabaseUrl && c.supabaseAnonKey ? c : null;
+    return r.ok ? ((await r.json()) as Config) : null;
   } catch {
     return null;
   }
 }
-export async function initSupabase(cfg: Config) {
-  const { createClient } = await import("@supabase/supabase-js");
-  sb = createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, {
-    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, flowType: "pkce" },
-  });
-  return sb;
+
+interface Auth { token: string; user: User; entitlement: Entitlement }
+async function auth(path: string, email: string, password: string) {
+  const a = await api<Auth>(path, "POST", { email, password });
+  token.set(a.token);
+  return { session: { user: a.user }, ent: a.entitlement };
+}
+export const signUp = (email: string, password: string) => auth("/api/auth/signup", email, password);
+export const signIn = (email: string, password: string) => auth("/api/auth/login", email, password);
+export async function signOut() {
+  await api("/api/auth/logout", "POST", {}).catch(() => undefined);
+  token.del();
+}
+export async function fetchMe() {
+  const me = await api<{ user: User; entitlement: Entitlement }>("/api/me");
+  return { session: { user: me.user }, ent: me.entitlement };
+}
+export const changePassword = (current: string, next: string) => api("/api/account/password", "POST", { current, next });
+export async function deleteAccount() {
+  await api("/api/account", "DELETE");
+  token.del();
 }
 
-const appUrl = () => location.origin + "/app/";
-export async function signInWithEmail(email: string) {
-  const { error } = await sb!.auth.signInWithOtp({ email, options: { emailRedirectTo: appUrl(), shouldCreateUser: true } });
-  if (error) throw error;
+export async function fetchCloudState(): Promise<{ data: State; updatedAt: number } | null> {
+  const r = await api<{ data: State | null; updatedAt?: number }>("/api/state");
+  return r.data ? { data: r.data, updatedAt: r.updatedAt || 0 } : null;
 }
-export async function signInWithGoogle() {
-  const { error } = await sb!.auth.signInWithOAuth({ provider: "google", options: { redirectTo: appUrl() } });
-  if (error) throw error;
-}
-export const signOut = () => sb!.auth.signOut();
+export const saveCloudState = (state: State) => api<{ updatedAt: number }>("/api/state", "PUT", { data: state });
+export const sendFeedback = (answer: string, comment: string, plan: PlanId) => api("/api/feedback", "POST", { answer, comment, plan });
+export const sendSupport = (email: string, message: string) => api("/api/support", "POST", { email, message });
 
-const ACTIVE = ["active", "trialing", "past_due"];
-export async function fetchEntitlement(userId: string): Promise<Entitlement> {
-  const [p, s] = await Promise.all([
-    sb!.from("profiles").select("trial_ends_at").eq("id", userId).maybeSingle(),
-    sb!.from("subscriptions").select("plan,status,interval,current_period_end,cancel_at_period_end").eq("user_id", userId).maybeSingle(),
-  ]);
-  const sub = s.data as any, prof = p.data as any;
-  if (sub && ACTIVE.includes(sub.status) && (sub.plan === "plus" || sub.plan === "pro"))
-    return { plan: sub.plan, source: "subscription", status: sub.status, interval: sub.interval, periodEnd: sub.current_period_end, cancelAtPeriodEnd: !!sub.cancel_at_period_end };
-  if (prof && prof.trial_ends_at && new Date(prof.trial_ends_at).getTime() > Date.now())
-    return { plan: "pro", source: "trial", trialEndsAt: prof.trial_ends_at, status: sub?.status };
-  return { ...FREE_ENT, trialEndsAt: prof?.trial_ends_at, status: sub?.status };
+export async function startCheckout(plan: "plus" | "pro", interval: Interval) {
+  location.href = (await api<{ url: string }>("/api/checkout", "POST", { plan, interval })).url;
 }
-
-export async function fetchCloudState(userId: string): Promise<{ data: State; updatedAt: number } | null> {
-  const { data, error } = await sb!.from("clinic_states").select("data,updated_at").eq("user_id", userId).maybeSingle();
-  if (error) throw error;
-  return data ? { data: (data as any).data, updatedAt: new Date((data as any).updated_at).getTime() } : null;
-}
-export async function saveCloudState(userId: string, state: State) {
-  const { error } = await sb!.from("clinic_states").upsert({ user_id: userId, data: state, updated_at: new Date().toISOString() });
-  if (error) throw error;
-}
-export async function sendFeedback(answer: string, comment: string, plan: PlanId, userId?: string) {
-  if (!sb) return;
-  await sb.from("feedback").insert({ user_id: userId || null, would_pay: answer, comment: comment || null, plan });
-}
-
-async function post(path: string, session: Session, body?: unknown) {
-  const r = await fetch(path, {
-    method: "POST",
-    headers: { "content-type": "application/json", authorization: "Bearer " + session.access_token },
-    body: JSON.stringify(body || {}),
-  });
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok || !j.url) throw new Error(j.error || "No se pudo abrir el pago. Intenta de nuevo.");
-  return j.url as string;
-}
-export async function startCheckout(session: Session, plan: "plus" | "pro", interval: Interval) {
-  location.href = await post("/api/checkout", session, { plan, interval });
-}
-export async function openPortal(session: Session) {
-  location.href = await post("/api/portal", session);
+export async function openPortal() {
+  location.href = (await api<{ url: string }>("/api/portal", "POST", {})).url;
 }

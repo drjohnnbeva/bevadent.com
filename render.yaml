@@ -1,23 +1,32 @@
-# Blueprint de Render: un solo servicio que sirve la página, la app y la API de cobro.
+# Blueprint de Render: un servicio que sirve la página, la app y la API, más su base de datos Postgres.
+databases:
+  - name: odontocostos-db
+    databaseName: odontocostos_db
+    plan: basic-256mb
+    region: oregon
+
 services:
   - type: web
     name: odontocostos
     runtime: node
     plan: starter
     region: oregon
+    branch: odontocostos
     buildCommand: npm ci && npm run build
     startCommand: npm start
     healthCheckPath: /api/health
     envVars:
       - key: NODE_VERSION
         value: "22"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: odontocostos-db
+          property: connectionString
       - key: APP_URL
         sync: false
-      - key: SUPABASE_URL
-        sync: false
-      - key: SUPABASE_ANON_KEY
-        sync: false
-      - key: SUPABASE_SERVICE_ROLE_KEY
+      - key: ADMIN_PASSWORD
+        generateValue: true
+      - key: SUPPORT_EMAIL
         sync: false
       - key: STRIPE_SECRET_KEY
         sync: false
@@ -26,8 +35,4 @@ services:
       - key: STRIPE_FOUNDER_COUPON
         sync: false
       - key: STRIPE_PORTAL_CONFIG
-        sync: false
-      - key: GOOGLE_AUTH
-        value: "0"
-      - key: SUPPORT_EMAIL
         sync: false

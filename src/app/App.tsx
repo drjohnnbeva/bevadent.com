@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ApiError, fetchCloudState, fetchMe, FREE_ENT, hasToken, loadConfig, saveCloudState, type Config, type Entitlement, type Session } from "../lib/cloud";
+import { ApiError, fetchCloudState, fetchMe, FREE_ENT, hasToken, LINK_KEY, loadConfig, saveCloudState, type Config, type Entitlement, type Session } from "../lib/cloud";
 import { getSaver, type Saver } from "../lib/files";
 import { loadLocal, makeDemo, normalize, saveLocal, type State } from "../lib/model";
 import { can, PLANS, type PlanId } from "../lib/plans";
@@ -15,7 +15,6 @@ import { GUEST_BACKUP, Backup, Learn, More, PriceList, Profile, Promos, Quotes, 
 import { Treatment } from "./screens/Treatment";
 import { Treatments } from "./screens/Treatments";
 
-const LINK_KEY = "odontocostos.linked-user";
 const WIDE_Q = "(min-width: 900px)";
 const store = {
   get: (k: string) => { try { return localStorage.getItem(k); } catch { return null; } },

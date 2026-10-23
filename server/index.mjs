@@ -14,6 +14,17 @@ if (env.DATABASE_URL) {
   await db.exec(SCHEMA);
 } else console.warn("Sin DATABASE_URL: el sitio funciona, pero sin cuentas (los datos se quedan en cada dispositivo).");
 
-const app = createApp({ db, env });
+// Correo (para recuperar la contraseña). Con Gmail basta SMTP_USER y una contraseña de aplicación en SMTP_PASS.
+let mailer = null;
+if (env.SMTP_USER && env.SMTP_PASS) {
+  const { default: nodemailer } = await import("nodemailer");
+  const port = Number(env.SMTP_PORT || 465);
+  const transport = nodemailer.createTransport({ host: env.SMTP_HOST || "smtp.gmail.com", port, secure: port === 465, auth: { user: env.SMTP_USER, pass: env.SMTP_PASS.replace(/\s+/g, "") } });
+  const from = env.MAIL_FROM || `"OdontoCostos" <${env.SMTP_USER}>`;
+  mailer = { send: (m) => transport.sendMail({ from, ...(env.SUPPORT_EMAIL && { replyTo: env.SUPPORT_EMAIL }), ...m }) };
+  transport.verify().then(() => console.log("Correo listo"), (e) => console.error("El correo no conecta:", e.message));
+}
+
+const app = createApp({ db, env, mailer });
 const billing = !!(db && env.STRIPE_SECRET_KEY && env.STRIPE_WEBHOOK_SECRET);
-app.listen(PORT, () => console.log(`OdontoCostos escuchando en ${PORT} (cuentas: ${db ? "sí" : "no"}, cobro: ${billing ? "sí" : "beta gratis"})`));
+app.listen(PORT, () => console.log(`OdontoCostos escuchando en ${PORT} (cuentas: ${db ? "sí" : "no"}, correo: ${mailer ? "sí" : "no"}, cobro: ${billing ? "sí" : "beta gratis"})`));

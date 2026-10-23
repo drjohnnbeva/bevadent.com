@@ -8,6 +8,8 @@ export interface Config {
   billing: boolean;
   /** Beta: el cobro todavía no está activo y Pro es gratis */
   beta: boolean;
+  /** Hay correo configurado: recuperar la contraseña manda un enlace */
+  email: boolean;
   founder: boolean;
   trialDays: number;
   supportEmail: string;
@@ -25,13 +27,17 @@ export interface User { id: string; email: string }
 export interface Session { user: User }
 export const FREE_ENT: Entitlement = { plan: "free", source: "free" };
 
-const TOKEN_KEY = "odontocostos.session";
+const TOKEN_KEY = "odontocostos.session", LAST_EMAIL = "odontocostos.last-email";
+/** Usuario cuyos datos están en este dispositivo */
+export const LINK_KEY = "odontocostos.linked-user";
 const token = {
   get: () => { try { return localStorage.getItem(TOKEN_KEY); } catch { return null; } },
   set: (t: string) => { try { localStorage.setItem(TOKEN_KEY, t); } catch { /* sin almacenamiento */ } },
   del: () => { try { localStorage.removeItem(TOKEN_KEY); } catch { /* sin almacenamiento */ } },
 };
 export const hasToken = () => !!token.get();
+/** Último correo que entró en este dispositivo: para proponer "Ya tengo cuenta" */
+export const lastEmail = () => { try { return localStorage.getItem(LAST_EMAIL) || ""; } catch { return ""; } };
 
 export class ApiError extends Error {
   constructor(message: string, readonly status: number) { super(message); }
@@ -65,13 +71,17 @@ export async function loadConfig(): Promise<Config | null> {
 }
 
 interface Auth { token: string; user: User; entitlement: Entitlement }
-async function auth(path: string, email: string, password: string) {
-  const a = await api<Auth>(path, "POST", { email, password });
+async function auth(path: string, body: Record<string, string>) {
+  const a = await api<Auth>(path, "POST", body);
   token.set(a.token);
+  try { localStorage.setItem(LAST_EMAIL, a.user.email); } catch { /* sin almacenamiento */ }
   return { session: { user: a.user }, ent: a.entitlement };
 }
-export const signUp = (email: string, password: string) => auth("/api/auth/signup", email, password);
-export const signIn = (email: string, password: string) => auth("/api/auth/login", email, password);
+export const signUp = (email: string, password: string) => auth("/api/auth/signup", { email, password });
+export const signIn = (email: string, password: string) => auth("/api/auth/login", { email, password });
+/** Pide recuperar la contraseña. email: llega un enlace; manual: la solicitud queda en el panel del dueño. */
+export const requestReset = (email: string, whatsapp = "") => api<{ via: "email" | "manual" }>("/api/auth/forgot", "POST", { email, whatsapp });
+export const resetPassword = (resetToken: string, password: string) => auth("/api/auth/reset", { token: resetToken, password });
 export async function signOut() {
   await api("/api/auth/logout", "POST", {}).catch(() => undefined);
   token.del();
@@ -84,6 +94,7 @@ export const changePassword = (current: string, next: string) => api("/api/accou
 export async function deleteAccount() {
   await api("/api/account", "DELETE");
   token.del();
+  try { localStorage.removeItem(LAST_EMAIL); } catch { /* sin almacenamiento */ }
 }
 
 export async function fetchCloudState(): Promise<{ data: State; updatedAt: number } | null> {

@@ -8,7 +8,10 @@ import { fakeStripe, serve, testDb } from "./testdb.mjs";
 
 const SECRET = "whsec_live_test";
 const db = await testDb(), db2 = await testDb();
-const beta = await serve({ db, env: { SUPPORT_EMAIL: "hola@odontocostos.com" } });
+const mail = { sent: [], send: async (m) => { mail.sent.push(m); } };
+const beta = await serve({ db, mailer: mail, env: { SUPPORT_EMAIL: "hola@odontocostos.com", APP_URL: "https://odontocostos.test" } });
+// El correo trae la dirección pública; en la prueba se abre la misma ruta en el servidor local.
+const mailLink = () => { const u = new URL(mail.sent[0].text.match(/https:\/\/\S+reset=[\w-]+/)[0]); return beta.base + u.pathname + u.search; };
 let billBase = "";
 const stripe = await fakeStripe({ checkoutUrl: () => billBase + "/app/?pago=ok" });
 const bill = await serve({ db: db2, stripeClient: stripe, env: { STRIPE_WEBHOOK_SECRET: SECRET, TRIAL_DAYS: "14" } });
@@ -86,6 +89,12 @@ await t("cerrar sesión regresa a datos de ejemplo", async () => {
   assert.equal(JSON.parse(await g.evaluate(() => localStorage.getItem("odontocostos.v2"))).clinic.rent, 12000);
   assert.equal(await g.evaluate(() => localStorage.getItem("odontocostos.session")), null);
 });
+await t("al volver propone entrar con su correo", async () => {
+  await g.click(".side-plan button:has-text('Crear cuenta o entrar')");
+  await g.waitForSelector("h1:has-text('Entra a tu cuenta')");
+  assert.equal(await g.inputValue("#email"), "ana@consultorio.mx");
+  await g.waitForSelector("button:has-text('¿Olvidaste tu contraseña?')");
+});
 
 // Teléfono: entrar con la contraseña y recibir los datos
 const m = await page(beta.base, 390);
@@ -94,13 +103,25 @@ await t("teléfono: contraseña equivocada avisa y ofrece recuperar", async () =
   await m.click("button[role=tab]:has-text('Ya tengo cuenta')");
   await m.fill("#email", "ana@consultorio.mx"); await m.fill("#password", "muelas-2026"); await m.click("button[type=submit]");
   await m.waitForSelector("text=no coinciden");
-  await m.click("button:has-text('Olvidé mi contraseña')"); await m.waitForSelector("text=Recupera tu cuenta");
+  await m.click("button:has-text('¿Olvidaste tu contraseña?')"); await m.waitForSelector("h1:has-text('Recupera tu cuenta')");
+  assert.equal(await m.inputValue("#femail"), "ana@consultorio.mx");
+  assert.equal(await m.isVisible("#fwa"), false);
+  await m.click("button:has-text('Mandarme el enlace')"); await m.waitForSelector("text=Revisa tu correo");
+  assert.equal(mail.sent.length, 1); assert.equal(mail.sent[0].to, "ana@consultorio.mx");
 });
-await t("teléfono: entra y recibe los datos de la nube", async () => {
-  await m.fill("#password", "muelas-2027"); await m.click("button[type=submit]");
-  await m.waitForSelector(".toast:has-text('Entraste')");
+await t("teléfono: el enlace del correo deja poner contraseña nueva y trae los datos", async () => {
+  assert.ok(mail.sent[0].text.includes("https://odontocostos.test/app/cuenta?reset="));
+  await m.goto(mailLink()); await m.waitForSelector("h1:has-text('Pon tu contraseña nueva')");
+  await m.fill("#newpw", "muelas-2028"); await m.click("button:has-text('Guardar y entrar')");
+  await m.waitForSelector(".toast:has-text('cambiaste tu contraseña')");
+  assert.ok(!m.url().includes("reset="));
   await m.click(".tab:has-text('Consultorio')");
   await until(async () => (await m.inputValue("#rent")) === "15000");
+});
+await t("teléfono: el mismo enlace ya no sirve", async () => {
+  await m.goto(mailLink()); await m.fill("#newpw", "muelas-2029"); await m.click("button:has-text('Guardar y entrar')");
+  await m.waitForSelector("text=ya venció o ya se usó");
+  await m.click("button:has-text('Pedir otro enlace')"); await m.waitForSelector("h1:has-text('Tu cuenta')");
 });
 await t("teléfono: la sesión sigue al recargar", async () => {
   await m.reload(); await m.waitForSelector(".app");
@@ -128,6 +149,15 @@ await t("cobro: suscribirse abre el pago y el plan se activa al volver", async (
 await t("cobro: la cuenta ofrece administrar la suscripción", async () => {
   await b.click(".side-plan button:has-text('Cuenta')");
   await b.waitForSelector("button:has-text('Administrar suscripción')");
+});
+
+await t("cobro: sin correo, recuperar pide WhatsApp y deja la solicitud en el panel", async () => {
+  const f = await page(bill.base, 390);
+  await f.click("button[aria-label='Tu cuenta']"); await f.click("button[role=tab]:has-text('Ya tengo cuenta')");
+  await f.click("button:has-text('¿Olvidaste tu contraseña?')");
+  await f.fill("#femail", "luis@dental.mx"); await f.fill("#fwa", "443 555 0101");
+  await f.click("button:has-text('Pedir ayuda para entrar')"); await f.waitForSelector("text=Recibimos tu solicitud");
+  assert.match((await db2.query("select message from support_messages")).rows[0].message, /WhatsApp: 443 555 0101/);
 });
 
 // ---------- Sin base de datos ----------

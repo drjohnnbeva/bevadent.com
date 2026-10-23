@@ -47,14 +47,26 @@ function limiter(max, windowMs) {
   };
 }
 
-export function createApp({ db, env = process.env, dist = join(HERE, "..", "dist"), stripeClient } = {}) {
+/** Correo para recuperar la contraseña. mailer: { send({ to, subject, text, html }) } */
+function resetMail(link) {
+  const text = `Hola:\n\nPediste cambiar tu contraseña de OdontoCostos. Abre este enlace para poner una nueva. Sirve una sola vez durante una hora:\n\n${link}\n\nSi no lo pediste, ignora este correo: tu contraseña sigue igual.\n\nOdontoCostos`;
+  const html = `<div style="font:16px/1.5 system-ui,sans-serif;color:#10201b;max-width:480px;margin:0 auto;padding:24px">
+<p style="font-weight:800;font-size:20px;margin:0 0 16px">OdontoCostos</p>
+<p>Pediste cambiar tu contraseña. Toca el botón para poner una nueva. Sirve una sola vez durante una hora.</p>
+<p style="margin:24px 0"><a href="${esc(link)}" style="background:#0b7a61;color:#fff;text-decoration:none;font-weight:700;padding:12px 20px;border-radius:12px;display:inline-block">Poner una contraseña nueva</a></p>
+<p style="color:#4a5b55;font-size:14px">Si no lo pediste, ignora este correo: tu contraseña sigue igual.</p></div>`;
+  return { subject: "Cambia tu contraseña de OdontoCostos", text, html };
+}
+
+export function createApp({ db, env = process.env, dist = join(HERE, "..", "dist"), stripeClient, mailer = null } = {}) {
   const APP_URL = (env.APP_URL || "http://localhost:3000").replace(/\/$/, "");
   const stripe = stripeClient || (env.STRIPE_SECRET_KEY ? new Stripe(env.STRIPE_SECRET_KEY) : null);
-  const accounts = !!db;
+  const accounts = !!db, email = accounts && !!mailer;
   const billing = accounts && !!(stripe && env.STRIPE_WEBHOOK_SECRET);
   const beta = !billing;
   const trialDays = Number(beta ? env.BETA_TRIAL_DAYS || 60 : env.TRIAL_DAYS || 14);
   const limitSignup = limiter(10, 60 * 60_000), limitLoginIp = limiter(30, 15 * 60_000), limitLoginEmail = limiter(8, 15 * 60_000), limitSupport = limiter(6, 60 * 60_000);
+  const limitForgotIp = limiter(10, 60 * 60_000), limitForgotEmail = limiter(4, 60 * 60_000);
   const q = async (text, params) => (await db.query(text, params)).rows;
   const one = async (text, params) => (await q(text, params))[0] || null;
 
@@ -154,7 +166,7 @@ export function createApp({ db, env = process.env, dist = join(HERE, "..", "dist
     res.json({ ok: true, billing, beta, accounts });
   });
   app.get("/api/config", async (_req, res) => {
-    res.set("cache-control", "no-store").json({ accounts, billing, beta, founder: await founderActive(), trialDays, supportEmail: env.SUPPORT_EMAIL || "" });
+    res.set("cache-control", "no-store").json({ accounts, billing, beta, email, founder: await founderActive(), trialDays, supportEmail: env.SUPPORT_EMAIL || "" });
   });
   // Sin base de datos el sitio funciona igual, con los datos en el dispositivo.
   app.use(["/api", "/admin"], (_req, _res, next) => next(db ? undefined : httpError(503, "Las cuentas se activan muy pronto. Mientras, tus datos se guardan en este dispositivo.")));
@@ -181,6 +193,39 @@ export function createApp({ db, env = process.env, dist = join(HERE, "..", "dist
     if (!u || !(await checkPassword(password, u.password_hash))) throw httpError(401, "El correo o la contraseña no coinciden.");
     res.json({ token: await newSession(u.id), user: publicUser(u), entitlement: await entitlement(u) });
   });
+  // Olvidé mi contraseña: con correo configurado manda un enlace; sin él, deja la solicitud en el panel.
+  // La respuesta es la misma exista o no la cuenta.
+  app.post("/api/auth/forgot", async (req, res) => {
+    const addr = String(req.body?.email || "").trim().toLowerCase();
+    if (!EMAIL_RE.test(addr)) throw httpError(400, "Escribe el correo con el que creaste tu cuenta.");
+    if (!limitForgotIp(req.ip) || !limitForgotEmail(addr)) throw httpError(429, "Ya pediste varios enlaces. Espera una hora o escríbenos desde soporte.");
+    const u = await one("select id, email from users where email = $1", [addr]);
+    if (!email) {
+      const wa = String(req.body?.whatsapp || "").trim().slice(0, 40);
+      await q("insert into support_messages (user_id, email, message) values ($1, $2, $3)",
+        [u?.id || null, addr, "Olvidé mi contraseña." + (wa ? " WhatsApp: " + wa + "." : "") + (u ? "" : " (No hay cuenta con este correo.)")]);
+      return res.json({ via: "manual" });
+    }
+    if (u) {
+      const token = randomBytes(32).toString("base64url");
+      await q("delete from password_resets where user_id = $1", [u.id]);
+      await q("insert into password_resets (token_hash, user_id, expires_at) values ($1, $2, now() + interval '1 hour')", [sha256(token), u.id]);
+      try { await mailer.send({ to: u.email, ...resetMail(`${APP_URL}/app/cuenta?reset=${token}`) }); }
+      catch (e) { console.error("Correo de contraseña", e); throw httpError(503, "No pudimos mandar el correo ahora. Intenta en unos minutos o escríbenos desde soporte."); }
+    }
+    res.json({ via: "email" });
+  });
+  app.post("/api/auth/reset", async (req, res) => {
+    const password = String(req.body?.password || "");
+    if (password.length < 8) throw httpError(400, "La contraseña necesita al menos 8 caracteres.");
+    if (password.length > 200) throw httpError(400, "La contraseña es demasiado larga.");
+    const r = await one("delete from password_resets where token_hash = $1 returning user_id, expires_at", [sha256(String(req.body?.token || ""))]);
+    if (!r || new Date(r.expires_at).getTime() < Date.now()) throw httpError(400, "Este enlace ya venció o ya se usó. Pide uno nuevo.");
+    await q("update users set password_hash = $1 where id = $2", [await hashPassword(password), r.user_id]);
+    await q("delete from sessions where user_id = $1", [r.user_id]);
+    const u = await one("select * from users where id = $1", [r.user_id]);
+    res.json({ token: await newSession(u.id), user: publicUser(u), entitlement: await entitlement(u) });
+  });
   app.post("/api/auth/logout", async (req, res) => {
     const token = (req.get("authorization") || "").replace(/^Bearer\s+/i, "");
     if (token) await q("delete from sessions where token_hash = $1", [sha256(token)]);
@@ -196,6 +241,7 @@ export function createApp({ db, env = process.env, dist = join(HERE, "..", "dist
     if (!(await checkPassword(String(current || ""), u.password_hash))) throw httpError(400, "Tu contraseña actual no coincide.");
     if (String(next || "").length < 8) throw httpError(400, "La contraseña nueva necesita al menos 8 caracteres.");
     await q("update users set password_hash = $1 where id = $2", [await hashPassword(String(next)), u.id]);
+    await q("delete from password_resets where user_id = $1", [u.id]);
     await q("delete from sessions where user_id = $1 and token_hash <> $2", [u.id, sha256((req.get("authorization") || "").replace(/^Bearer\s+/i, ""))]);
     res.json({ ok: true });
   });
@@ -298,7 +344,7 @@ export function createApp({ db, env = process.env, dist = join(HERE, "..", "dist
 .k{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}.k div{background:#fff;border:1px solid #d9e2dd;border-radius:14px;padding:14px}.k b{display:block;font-size:28px}
 table{width:100%;border-collapse:collapse;background:#fff;border:1px solid #d9e2dd;border-radius:12px;overflow:hidden}td,th{text-align:left;padding:8px 10px;border-bottom:1px solid #e9efeb;vertical-align:top}th{font-size:13px;color:#4a5b55}.w{overflow-x:auto}
 form{display:flex;gap:8px;flex-wrap:wrap}input{font:inherit;padding:8px 10px;border:1px solid #d9e2dd;border-radius:10px;min-width:260px}button{font:inherit;font-weight:700;padding:8px 14px;border:0;border-radius:10px;background:#0b7a61;color:#fff;cursor:pointer}.m{color:#4a5b55}</style></head><body><main>
-<h1>Panel de OdontoCostos</h1><p class="m">${beta ? "Beta gratis: el cobro con Stripe todavía no está activo." : "Cobro activo."}</p>
+<h1>Panel de OdontoCostos</h1><p class="m">${beta ? "Beta gratis: el cobro con Stripe todavía no está activo." : "Cobro activo."} ${email ? "Recuperar contraseña: por correo, automático." : "Recuperar contraseña: manual (las solicitudes llegan a Mensajes de soporte)."}</p>
 <div class="k"><div>Cuentas<b>${stats.users}</b></div><div>Nuevas en 7 días<b>${stats.week}</b></div><div>Con datos guardados<b>${stats.with_data}</b></div><div>Suscripciones activas<b>${subs.reduce((s, x) => s + x.n, 0)}</b></div><div>Ingreso mensual<b>$${Math.round(mrr).toLocaleString("es-MX")}</b></div><div>Respuestas a la encuesta<b>${stats.feedback}</b></div></div>
 <h2>¿Pagarían?</h2><div class="w"><table><tr><th>Respuesta</th><th>Votos</th></tr>${votes.map((v) => `<tr><td>${esc(VOTE[v.would_pay] || v.would_pay)}</td><td>${v.n}</td></tr>`).join("") || '<tr><td colspan="2" class="m">Sin respuestas todavía</td></tr>'}</table></div>
 <h2>Comentarios</h2><div class="w"><table><tr><th>Fecha</th><th>Correo</th><th>Respuesta</th><th>Comentario</th></tr>${fb.map((f) => `<tr><td>${d(f.created_at)}</td><td>${esc(f.email || "sin cuenta")}</td><td>${esc(VOTE[f.would_pay] || f.would_pay)}</td><td>${esc(f.comment || "")}</td></tr>`).join("") || '<tr><td colspan="4" class="m">Sin comentarios</td></tr>'}</table></div>
@@ -315,6 +361,7 @@ form{display:flex;gap:8px;flex-wrap:wrap}input{font:inherit;padding:8px 10px;bor
     if (!u) throw httpError(404, "No hay una cuenta con ese correo.");
     const temp = randomBytes(6).toString("base64url");
     await q("update users set password_hash = $1 where id = $2", [await hashPassword(temp), u.id]);
+    await q("delete from password_resets where user_id = $1", [u.id]);
     await q("delete from sessions where user_id = $1", [u.id]);
     res.type("html").send(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><body style="font:16px system-ui;padding:24px"><p>Contraseña temporal para <b>${esc(email)}</b>:</p><p style="font:700 24px ui-monospace,monospace">${esc(temp)}</p><p>Pídele que la cambie en Cuenta. <a href="/admin">Volver al panel</a></p></body>`);
   });

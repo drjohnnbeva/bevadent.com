@@ -78,10 +78,10 @@ export function Num(p: { id: string; label: string; hint?: ReactNode; value: unk
     </div>
   );
 }
-export function Txt(p: { id: string; label: string; value: string; onChange: (v: string) => void; placeholder?: string; hint?: ReactNode; type?: string; autoComplete?: string }) {
+export function Txt(p: { id: string; label: string; value: string; onChange: (v: string) => void; placeholder?: string; hint?: ReactNode; type?: string; autoComplete?: string; aside?: ReactNode }) {
   return (
     <div className="field">
-      <label htmlFor={p.id}>{p.label}</label>
+      {p.aside ? <div className="field-head"><label htmlFor={p.id}>{p.label}</label>{p.aside}</div> : <label htmlFor={p.id}>{p.label}</label>}
       <div className="inp"><input id={p.id} className="txt" type={p.type || "text"} autoComplete={p.autoComplete} value={p.value ?? ""} placeholder={p.placeholder} onChange={(e) => p.onChange(e.target.value)} /></div>
       {p.hint && <small>{p.hint}</small>}
     </div>

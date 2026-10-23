@@ -98,6 +98,8 @@ h3 { font-size: 16.5px; font-weight: 700; line-height: 1.3; }
 .field small { font-size: 12.5px; color: var(--ink-2); line-height: 1.45; }
 .inp { display: flex; align-items: center; background: var(--panel); border: 1px solid var(--rule); border-radius: var(--r-ctl); padding: 0 12px; min-width: 0; min-height: 48px; transition: border-color .12s, box-shadow .12s; }
 .inp:focus-within { border-color: var(--scrub); box-shadow: 0 0 0 3px var(--scrub-wash); }
+.inp input:focus-visible { outline: none; } /* el anillo lo dibuja .inp */
+.field-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .inp .affix { color: var(--ink-2); font-size: 15px; white-space: nowrap; }
 .inp.big { min-height: 56px; }
 .inp.big input { font: 700 20px var(--f-display); letter-spacing: -0.01em; }
@@ -251,6 +253,7 @@ input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--scrub); 
 .tbl tfoot td { font-weight: 800; border-top: 2px solid var(--ink); border-bottom: 0; }
 .linkbtn { all: unset; cursor: pointer; font-weight: 700; overflow-wrap: anywhere; }
 .linkbtn:focus-visible { outline: 2px solid var(--scrub); outline-offset: 2px; border-radius: 4px; }
+.linkbtn.small { font-size: 14px; color: var(--scrub-text); }
 
 /* Navegación del teléfono */
 .tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; background: color-mix(in srgb, var(--panel) 94%, transparent); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border-top: 1px solid var(--rule); display: flex; justify-content: center; padding: 4px max(8px, env(safe-area-inset-right, 0px)) calc(4px + env(safe-area-inset-bottom, 0px)) max(8px, env(safe-area-inset-left, 0px)); }

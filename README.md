@@ -46,6 +46,13 @@ Las capturas del recorrido quedan en `e2e/out/`.
 
 `https://odontocostos.com/admin`, usuario `admin` y la contraseña de `ADMIN_PASSWORD`. Muestra cuentas, suscripciones, ingreso mensual, respuestas de la encuesta y mensajes de soporte. Desde ahí se genera una contraseña temporal para quien olvidó la suya.
 
+## ¿Olvidaste tu contraseña?
+
+- Con `SMTP_USER` y `SMTP_PASS`: llega un enlace al correo que sirve una vez durante una hora. Al usarlo se cierran las demás sesiones.
+- Sin correo configurado: la solicitud (con su WhatsApp, si lo deja) aparece en Mensajes de soporte del panel, y desde ahí se genera una contraseña temporal.
+
+Para Gmail: activa la verificación en dos pasos, crea una contraseña de aplicación en [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords) y ponla en `SMTP_PASS`. Los registros del servidor dicen `Correo listo` cuando conecta.
+
 ## Lanzamiento, paso a paso
 
 ### 1. Render (sitio y base de datos)
@@ -85,7 +92,7 @@ Compra `odontocostos.com` (o el que elijas). En Render: servicio → Settings �
 2. **Avisos por correo**: el día 17 se paga ISR, aparta tanto; vas abajo de tu punto de equilibrio.
 3. **Facturación automática** de cada pago (por ejemplo con Facturapi).
 4. **Plan anual por OXXO o transferencia**, como pago único.
-5. **Recuperar contraseña por correo**: hoy se pide por el formulario de soporte y se resuelve desde el panel.
+5. **Avisos por correo** a los de la beta antes de empezar a cobrar, con el mismo correo de recuperar contraseña.
 
 ## Fuentes de los cálculos fiscales
 

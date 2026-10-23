@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { changePassword, deleteAccount, openPortal, sendSupport, signIn, signOut, signUp } from "../../lib/cloud";
+import { changePassword, deleteAccount, lastEmail, openPortal, requestReset, resetPassword, sendSupport, signIn, signOut, signUp } from "../../lib/cloud";
 import { fmtDate } from "../../lib/format";
 import { PLANS, TRIAL_DAYS } from "../../lib/plans";
 import { Back, Confirm, I, Seg, Tag, Title, Txt } from "../../ui/kit";
@@ -12,6 +12,10 @@ export function Account() {
   const { st, go, toast, wide, cloud } = useApp();
   const head = <>{!wide && <Back to={PATH.more} label="Más" />}</>;
   const trialDays = cloud.cfg?.trialDays || TRIAL_DAYS;
+  // Enlace del correo para recuperar la contraseña: /app/cuenta?reset=…
+  const [resetToken, setResetToken] = useState(() => { try { return new URLSearchParams(location.search).get("reset"); } catch { return null; } });
+  const [askAgain, setAskAgain] = useState(false);
+  const clearReset = () => { history.replaceState(null, "", location.pathname); setResetToken(null); };
 
   if (cloud.mode === "preview") return (
     <div className="screen">{head}
@@ -37,7 +41,8 @@ export function Account() {
     </div>
   );
 
-  if (!cloud.session) return <SignIn trialDays={trialDays} />;
+  if (resetToken) return <NewPassword token={resetToken} done={clearReset} again={() => { clearReset(); setAskAgain(true); }} />;
+  if (!cloud.session) return <SignIn trialDays={trialDays} startForgot={askAgain} />;
 
   const ent = cloud.ent, plan = PLANS[st.plan];
   const daysLeft = ent.trialEndsAt ? Math.max(0, Math.ceil((new Date(ent.trialEndsAt).getTime() - Date.now()) / 864e5)) : 0;
@@ -81,12 +86,15 @@ export function Account() {
   );
 }
 
-function SignIn({ trialDays }: { trialDays: number }) {
+function SignIn({ trialDays, startForgot = false }: { trialDays: number; startForgot?: boolean }) {
   const { go, toast, wide, cloud } = useApp();
-  const [tab, setTab] = useState<"new" | "in">("new"), [forgot, setForgot] = useState(false);
-  const [email, setEmail] = useState(""), [pw, setPw] = useState(""), [show, setShow] = useState(false);
+  const known = lastEmail();
+  const [tab, setTab] = useState<"new" | "in">(known || startForgot ? "in" : "new"), [forgot, setForgot] = useState(startForgot);
+  const [email, setEmail] = useState(known), [pw, setPw] = useState(""), [show, setShow] = useState(false);
   const [busy, setBusy] = useState(false), [err, setErr] = useState("");
   const beta = !!cloud.cfg?.beta;
+
+  if (forgot) return <Forgot initialEmail={email} back={() => { setForgot(false); setTab("in"); }} />;
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault(); setErr("");
@@ -113,26 +121,102 @@ function SignIn({ trialDays }: { trialDays: number }) {
     <div className="screen">{!wide && <Back to={PATH.more} label="Más" />}
       <Title title={tab === "new" ? "Crea tu cuenta" : "Entra a tu cuenta"} lead={lead} />
       <section className="panel narrow stack">
-        <Seg label="Cuenta" value={tab} onChange={(v) => { setTab(v); setErr(""); setForgot(false); }} options={[["new", "Crear cuenta"], ["in", "Ya tengo cuenta"]]} />
+        <Seg label="Cuenta" value={tab} onChange={(v) => { setTab(v); setErr(""); }} options={[["new", "Crear cuenta"], ["in", "Ya tengo cuenta"]]} />
         <form className="stack" onSubmit={submit} noValidate>
           <Txt id="email" type="email" autoComplete="email" label="Tu correo" placeholder="ana@consultorio.mx" value={email} onChange={setEmail} />
           <Txt id="password" type={show ? "text" : "password"} autoComplete={tab === "new" ? "new-password" : "current-password"} label="Contraseña"
-            hint={tab === "new" ? "Al menos 8 caracteres. Guárdala bien: con ella entras desde cualquier dispositivo." : undefined} value={pw} onChange={setPw} />
+            hint={tab === "new" ? "Al menos 8 caracteres. Guárdala bien: con ella entras desde cualquier dispositivo." : undefined} value={pw} onChange={setPw}
+            aside={tab === "in" && <button type="button" className="linkbtn small" onClick={() => setForgot(true)}>¿Olvidaste tu contraseña?</button>} />
           <label className="row gap8 small"><input type="checkbox" checked={show} onChange={(e) => setShow(e.target.checked)} />Mostrar contraseña</label>
           {err && <div className="note bad" role="alert">{err}</div>}
           <button className="btn" type="submit" disabled={busy}>{busy ? (tab === "new" ? "Creando tu cuenta…" : "Entrando…") : tab === "new" ? "Crear mi cuenta gratis" : "Entrar"}</button>
           <p className="muted small">Al continuar aceptas los <a href="/terminos/">términos</a> y el <a href="/privacidad/">aviso de privacidad</a>.</p>
         </form>
-        {tab === "in" && !forgot && <button className="btn quiet sm start" onClick={() => setForgot(true)}>Olvidé mi contraseña</button>}
       </section>
-      {forgot && <Support initialEmail={email} initialMessage="Olvidé mi contraseña. ¿Me ayudan a entrar?" title="Recupera tu cuenta" lead="Escríbenos desde aquí y te mandamos una contraseña temporal al correo o al WhatsApp que nos dejes, normalmente el mismo día." />}
+    </div>
+  );
+}
+
+function Forgot({ initialEmail, back }: { initialEmail: string; back: () => void }) {
+  const { wide, cloud } = useApp();
+  const auto = !!cloud.cfg?.email;
+  const [email, setEmail] = useState(initialEmail), [wa, setWa] = useState("");
+  const [sent, setSent] = useState<"" | "email" | "manual">(""), [err, setErr] = useState(""), [busy, setBusy] = useState(false);
+  const send = async (e: React.FormEvent) => {
+    e.preventDefault(); setErr("");
+    if (!EMAIL_RE.test(email.trim())) { setErr("Escribe el correo con el que creaste tu cuenta."); return; }
+    setBusy(true);
+    try { setSent((await requestReset(email.trim().toLowerCase(), wa.trim())).via); }
+    catch (x: any) { setErr(x.message); }
+    setBusy(false);
+  };
+  return (
+    <div className="screen">{!wide && <Back to={PATH.more} label="Más" />}
+      <Title title="Recupera tu cuenta" lead={auto ? "Te mandamos un enlace a tu correo para que pongas una contraseña nueva. Tus datos siguen guardados." : "Déjanos tu correo y te ayudamos a entrar. Tus datos siguen guardados."} />
+      <section className="panel narrow stack">
+        {sent === "email" ? (
+          <div className="stack">
+            <div className="row gap8"><I.mail /><h3>Revisa tu correo</h3></div>
+            <p>Si hay una cuenta con <b>{email.trim()}</b>, te llega un enlace en un minuto. Sirve una sola vez durante una hora. Si no lo ves, busca en spam o en Promociones.</p>
+          </div>
+        ) : sent === "manual" ? (
+          <div className="stack">
+            <div className="row gap8"><I.check /><h3>Recibimos tu solicitud</h3></div>
+            <p>Te mandamos una contraseña temporal {wa.trim() ? "por WhatsApp o " : "a "}tu correo, normalmente el mismo día. Al entrar, cámbiala en Cuenta.</p>
+          </div>
+        ) : (
+          <form className="stack" onSubmit={send} noValidate>
+            <Txt id="femail" type="email" autoComplete="email" label="Tu correo" placeholder="ana@consultorio.mx" value={email} onChange={setEmail} />
+            {!auto && <Txt id="fwa" type="tel" autoComplete="tel" label="Tu WhatsApp (opcional)" placeholder="443 123 4567" hint="Para mandarte la contraseña temporal más rápido." value={wa} onChange={setWa} />}
+            {err && <div className="note bad" role="alert">{err}</div>}
+            <button className="btn" type="submit" disabled={busy}>{busy ? "Enviando…" : auto ? "Mandarme el enlace" : "Pedir ayuda para entrar"}</button>
+          </form>
+        )}
+        <button className="btn quiet sm start" onClick={back}><I.back />Volver a entrar</button>
+      </section>
+    </div>
+  );
+}
+
+function NewPassword({ token, done, again }: { token: string; done: () => void; again: () => void }) {
+  const { go, toast, wide, cloud } = useApp();
+  const [pw, setPw] = useState(""), [show, setShow] = useState(false), [err, setErr] = useState(""), [busy, setBusy] = useState(false);
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault(); setErr("");
+    if (pw.length < 8) { setErr("La contraseña necesita al menos 8 caracteres."); return; }
+    setBusy(true);
+    try {
+      const r = await resetPassword(token, pw);
+      cloud.signedIn(r.session, r.ent);
+      done(); toast("Listo: cambiaste tu contraseña y ya entraste"); go(PATH.home);
+    } catch (x: any) { setErr(x.message); setBusy(false); }
+  };
+  return (
+    <div className="screen">{!wide && <Back to={PATH.more} label="Más" />}
+      <Title title="Pon tu contraseña nueva" lead="Con ella entras desde el teléfono y la computadora. Tus datos siguen guardados." />
+      <section className="panel narrow">
+        <form className="stack" onSubmit={save} noValidate>
+          <Txt id="newpw" type={show ? "text" : "password"} autoComplete="new-password" label="Contraseña nueva" hint="Al menos 8 caracteres." value={pw} onChange={setPw} />
+          <label className="row gap8 small"><input type="checkbox" checked={show} onChange={(e) => setShow(e.target.checked)} />Mostrar contraseña</label>
+          {err && <div className="note bad" role="alert">{err}</div>}
+          <button className="btn" type="submit" disabled={busy}>{busy ? "Guardando…" : "Guardar y entrar"}</button>
+          {err && <button type="button" className="btn quiet sm start" onClick={again}>Pedir otro enlace</button>}
+        </form>
+      </section>
     </div>
   );
 }
 
 function Password() {
-  const { toast } = useApp();
+  const { toast, cloud } = useApp();
   const [open, setOpen] = useState(false), [cur, setCur] = useState(""), [next, setNext] = useState(""), [err, setErr] = useState(""), [busy, setBusy] = useState(false);
+  const forgot = async () => {
+    try {
+      const r = await requestReset(cloud.session!.user.email);
+      toast(r.via === "email" ? "Te mandamos un enlace a tu correo para poner una contraseña nueva" : "Recibimos tu solicitud: te ayudamos por correo");
+      setOpen(false);
+    } catch (x: any) { setErr(x.message); }
+  };
   if (!open) return <section className="panel"><h3>Contraseña</h3><button className="btn ghost sm start" onClick={() => setOpen(true)}><I.lock />Cambiar mi contraseña</button></section>;
   const save = async (e: React.FormEvent) => {
     e.preventDefault(); setErr("");
@@ -150,6 +234,7 @@ function Password() {
         <Txt id="pwnew" type="password" autoComplete="new-password" label="Contraseña nueva" hint="Al menos 8 caracteres." value={next} onChange={setNext} />
         {err && <div className="note bad" role="alert">{err}</div>}
         <div className="row"><button className="btn sm" type="submit" disabled={busy}>{busy ? "Guardando…" : "Guardar"}</button><button className="btn ghost sm" type="button" onClick={() => setOpen(false)}>Cancelar</button></div>
+        <button className="btn quiet sm start" type="button" onClick={forgot}>No recuerdo mi contraseña actual</button>
       </form>
     </section>
   );

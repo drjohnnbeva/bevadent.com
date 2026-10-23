@@ -38,12 +38,13 @@ const demo = { clinic: { rent: 12000 }, treatments: {}, order: [], months: {} };
 
 // ---------- Beta: con base de datos, sin cobro ----------
 const db = await testDb();
+const mail = { sent: [], send: async (m) => { mail.sent.push(m); } };
 {
-  const s = await serve({ db, env: { ADMIN_PASSWORD: ADMIN, SUPPORT_EMAIL: "hola@odontocostos.com", BETA_TRIAL_DAYS: "60" } }), api = client(s.base);
+  const s = await serve({ db, mailer: mail, env: { APP_URL: "https://odontocostos.test", ADMIN_PASSWORD: ADMIN, SUPPORT_EMAIL: "hola@odontocostos.com", BETA_TRIAL_DAYS: "60" } }), api = client(s.base);
   let tok = "", tok2 = "";
   await t("beta: configuración pública sin secretos", async () => {
     const c = await api("/api/config");
-    assert.deepEqual({ ...c.json }, { accounts: true, billing: false, beta: true, founder: true, trialDays: 60, supportEmail: "hola@odontocostos.com" });
+    assert.deepEqual({ ...c.json }, { accounts: true, billing: false, beta: true, email: true, founder: true, trialDays: 60, supportEmail: "hola@odontocostos.com" });
     assert.ok(!c.text.includes(ADMIN));
   });
   await t("rutas: 404 de página y de API", async () => {
@@ -138,6 +139,38 @@ const db = await testDb();
     assert.equal((await api("/api/me", { token: b })).status, 401);
     assert.equal((await api("/api/auth/login", { method: "POST", body: { email: "beto@sonrisa.mx", password: "segunda-123" } })).status, 200);
   });
+  await t("recuperar: correo desconocido responde igual y no manda nada", async () => {
+    const r = await api("/api/auth/forgot", { method: "POST", body: { email: "nadie@x.mx" } });
+    assert.equal(r.status, 200); assert.equal(r.json.via, "email"); assert.equal(mail.sent.length, 0);
+  });
+  await t("recuperar: el enlace del correo sirve una vez y cierra las sesiones", async () => {
+    const old = (await api("/api/auth/login", { method: "POST", body: { email: "beto@sonrisa.mx", password: "segunda-123" } })).json.token;
+    const r = await api("/api/auth/forgot", { method: "POST", body: { email: "Beto@Sonrisa.mx" } });
+    assert.equal(r.json.via, "email"); assert.equal(mail.sent.length, 1);
+    const m = mail.sent[0]; assert.equal(m.to, "beto@sonrisa.mx"); assert.match(m.subject, /contraseña/);
+    const token = m.text.match(/https:\/\/odontocostos\.test\/app\/cuenta\?reset=([\w-]+)/)[1];
+    assert.ok(m.html.includes("reset=" + token));
+    assert.ok(!(await db.query("select token_hash from password_resets")).rows.some((x) => x.token_hash === token));
+    assert.equal((await api("/api/auth/reset", { method: "POST", body: { token, password: "123" } })).status, 400);
+    const ok = await api("/api/auth/reset", { method: "POST", body: { token, password: "tercera-123" } });
+    assert.equal(ok.status, 200); assert.equal(ok.json.user.email, "beto@sonrisa.mx"); assert.ok(ok.json.token);
+    assert.equal((await api("/api/me", { token: old })).status, 401);
+    assert.equal((await api("/api/me", { token: ok.json.token })).status, 200);
+    assert.equal((await api("/api/auth/login", { method: "POST", body: { email: "beto@sonrisa.mx", password: "tercera-123" } })).status, 200);
+    const again = await api("/api/auth/reset", { method: "POST", body: { token, password: "cuarta-1234" } });
+    assert.equal(again.status, 400); assert.match(again.json.error, /venció o ya se usó/);
+  });
+  await t("recuperar: un enlace vencido no sirve", async () => {
+    await api("/api/auth/forgot", { method: "POST", body: { email: "beto@sonrisa.mx" } });
+    const token = mail.sent.at(-1).text.match(/reset=([\w-]+)/)[1];
+    await db.query("update password_resets set expires_at = now() - interval '1 minute'");
+    assert.equal((await api("/api/auth/reset", { method: "POST", body: { token, password: "cuarta-1234" } })).status, 400);
+  });
+  await t("recuperar: demasiadas solicitudes se frenan", async () => {
+    let last = 0;
+    for (let i = 0; i < 5; i++) last = (await api("/api/auth/forgot", { method: "POST", body: { email: "otro@x.mx" } })).status;
+    assert.equal(last, 429);
+  });
   await t("cerrar sesión invalida el token", async () => {
     assert.equal((await api("/api/auth/logout", { method: "POST", token: tok2, body: {} })).status, 200);
     assert.equal((await api("/api/me", { token: tok2 })).status, 401);
@@ -175,7 +208,13 @@ const db2 = await testDb();
 
   await t("cobro: salud y configuración", async () => {
     assert.equal((await api("/api/health")).json.billing, true);
-    const c = (await api("/api/config")).json; assert.equal(c.beta, false); assert.equal(c.founder, true); assert.equal(c.trialDays, 14);
+    const c = (await api("/api/config")).json; assert.equal(c.beta, false); assert.equal(c.founder, true); assert.equal(c.trialDays, 14); assert.equal(c.email, false);
+  });
+  await t("sin correo, recuperar deja la solicitud en el panel", async () => {
+    const r = await api("/api/auth/forgot", { method: "POST", body: { email: "ana@x.mx", whatsapp: "443 123 4567" } });
+    assert.equal(r.json.via, "manual");
+    const m = (await db2.query("select email, message from support_messages")).rows[0];
+    assert.equal(m.email, "ana@x.mx"); assert.match(m.message, /Olvidé mi contraseña\. WhatsApp: 443 123 4567/);
   });
   await t("cuenta nueva tiene 14 días de prueba de Pro", async () => {
     assert.equal(a.entitlement.source, "trial"); assert.equal(a.entitlement.plan, "pro");

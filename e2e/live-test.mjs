@@ -9,7 +9,7 @@ import { fakeStripe, serve, testDb } from "./testdb.mjs";
 const SECRET = "whsec_live_test";
 const db = await testDb(), db2 = await testDb();
 const mail = { sent: [], send: async (m) => { mail.sent.push(m); } };
-const beta = await serve({ db, mailer: mail, env: { SUPPORT_EMAIL: "hola@odontocostos.com", APP_URL: "https://odontocostos.test", ADMIN_PASSWORD: "cRTT2gtLsnlQsbaWAq6l" } });
+const beta = await serve({ db, mailer: mail, env: { SUPPORT_EMAIL: "hola@odontocostos.com", SUPPORT_WHATSAPP: "+52 452 123 4567", APP_URL: "https://odontocostos.test", ADMIN_PASSWORD: "cRTT2gtLsnlQsbaWAq6l" } });
 // El correo trae la dirección pública; en la prueba se abre la misma ruta en el servidor local.
 const mailLink = () => { const u = new URL(mail.sent[0].text.match(/https:\/\/\S+reset=[\w-]+/)[0]); return beta.base + u.pathname + u.search; };
 let billBase = "";
@@ -107,6 +107,15 @@ await t("la cuenta explica la beta y deja escribir a soporte", async () => {
   await g.fill("#smsg", "¿Puedo facturar?"); await g.click("button:has-text('Enviar mensaje')");
   await g.waitForSelector("text=Recibimos tu mensaje");
   assert.equal((await db.query("select email from support_messages")).rows[0].email, "ana@consultorio.mx");
+});
+await t("soporte por WhatsApp: en la cuenta y en la página de venta", async () => {
+  await g.click(".side-item:has-text('Inicio')"); await g.click(".side-plan button:has-text('Cuenta')");
+  const href = await g.getAttribute("a:has-text('Escríbeme por WhatsApp')", "href");
+  const u = new URL(href); assert.equal(u.pathname, "/524521234567"); assert.match(u.searchParams.get("text"), /^Hola, soy ana@consultorio\.mx\. /);
+  const l = await page(beta.base); await l.goto(beta.base + "/");
+  await l.waitForSelector("[data-wa]:not([hidden])");
+  assert.match(await l.getAttribute("[data-wa]", "href"), /^https:\/\/wa\.me\/524521234567\?text=/);
+  await l.context().close();
 });
 await t("invitar: la cuenta da el enlace y lo manda por WhatsApp", async () => {
   await g.waitForSelector("#invitar input");

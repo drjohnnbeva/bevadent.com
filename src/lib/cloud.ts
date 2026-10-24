@@ -15,6 +15,8 @@ export interface Config {
   founder: boolean;
   trialDays: number;
   supportEmail: string;
+  /** WhatsApp de soporte (con 52), o vacío */
+  supportWhatsapp?: string;
 }
 export interface Entitlement {
   plan: PlanId;

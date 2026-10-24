@@ -43,6 +43,10 @@ if (!__PREVIEW__) {
     .then((c) => {
       if (!c) return;
       if (typeof c.founder === "boolean") { founder = c.founder; render(); }
+      if (c.supportWhatsapp) {
+        const wa = document.querySelector<HTMLAnchorElement>("[data-wa]");
+        if (wa) { wa.href = "https://wa.me/" + c.supportWhatsapp + "?text=" + encodeURIComponent("Hola, quiero saber más de OdontoCostos."); wa.hidden = false; }
+      }
       if (c.beta) {
         // Beta: el cobro todavía no está activo y Pro es gratis al crear cuenta.
         const lead = document.querySelector<HTMLElement>("[data-lead]");

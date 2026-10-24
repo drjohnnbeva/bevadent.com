@@ -273,6 +273,13 @@ export function WhatsAppBtn({ text, name, make, phone = "", label = "Mandar por 
   };
   return <button className={"btn wa " + cls} onClick={send}><I.chat />{direct ? label + " al paciente" : label}</button>;
 }
+/** "Escríbeme por WhatsApp": abre el chat de soporte con un saludo listo. Sin número configurado no aparece. */
+export function SupportWa({ text = "Hola, tengo una duda de OdontoCostos: ", label = "Escríbeme por WhatsApp", cls = "" }: { text?: string; label?: string; cls?: string }) {
+  const { cloud } = useApp();
+  const num = cloud.cfg?.supportWhatsapp;
+  if (!num) return null;
+  return <a className={"btn wa " + cls} href={waLink(text, num)} target="_blank" rel="noopener"><I.chat />{label}</a>;
+}
 export function KV({ label, value, cls = "", neg }: { label: ReactNode; value: number; cls?: string; neg?: boolean }) {
   return (
     <div className={"kv " + cls}>

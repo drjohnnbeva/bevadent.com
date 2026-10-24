@@ -39,11 +39,11 @@ const demo = { clinic: { rent: 12000 }, treatments: {}, order: [], months: {} };
 const db = await testDb();
 const mail = { sent: [], send: async (m) => { mail.sent.push(m); } };
 {
-  const s = await serve({ db, mailer: mail, env: { APP_URL: "https://odontocostos.test", ADMIN_PASSWORD: ADMIN, SUPPORT_EMAIL: "hola@odontocostos.com", BETA_TRIAL_DAYS: "60" } }), api = client(s.base);
+  const s = await serve({ db, mailer: mail, env: { APP_URL: "https://odontocostos.test", ADMIN_PASSWORD: ADMIN, SUPPORT_EMAIL: "hola@odontocostos.com", SUPPORT_WHATSAPP: "452 123 4567", BETA_TRIAL_DAYS: "60" } }), api = client(s.base);
   let tok = "", tok2 = "";
   await t("beta: configuración pública sin secretos", async () => {
     const c = await api("/api/config");
-    assert.deepEqual({ ...c.json }, { accounts: true, billing: false, beta: true, email: true, founder: true, trialDays: 60, trialNeedsCard: false, supportEmail: "hola@odontocostos.com" });
+    assert.deepEqual({ ...c.json }, { accounts: true, billing: false, beta: true, email: true, founder: true, trialDays: 60, trialNeedsCard: false, supportEmail: "hola@odontocostos.com", supportWhatsapp: "524521234567" });
     assert.ok(!c.text.includes(ADMIN));
   });
   await t("rutas: 404 de página y de API", async () => {

@@ -68,6 +68,8 @@ export function createApp({ db, env = process.env, dist = join(HERE, "..", "dist
   // Beta: Pro gratis al crear cuenta. Con cobro: Gratis sin tarjeta, y Plus o Pro con 7 días de prueba dando la tarjeta.
   const betaDays = Number(env.BETA_TRIAL_DAYS || 60), cardTrialDays = Number(env.TRIAL_DAYS || 7), referralDays = Number(env.REFERRAL_TRIAL_DAYS || 30);
   const trialDays = beta ? betaDays : cardTrialDays;
+  // WhatsApp de soporte: 10 dígitos de México llevan 52 adelante.
+  const supportWhatsapp = ((d) => (d.length === 10 ? "52" + d : d))(String(env.SUPPORT_WHATSAPP || "").replace(/\D/g, ""));
   const limitSignup = limiter(10, 60 * 60_000), limitLoginIp = limiter(30, 15 * 60_000), limitLoginEmail = limiter(8, 15 * 60_000), limitSupport = limiter(6, 60 * 60_000);
   const limitForgotIp = limiter(10, 60 * 60_000), limitForgotEmail = limiter(4, 60 * 60_000);
   const q = async (text, params) => (await db.query(text, params)).rows;
@@ -241,7 +243,7 @@ export function createApp({ db, env = process.env, dist = join(HERE, "..", "dist
     res.json({ ok: true, billing, beta, accounts });
   });
   app.get("/api/config", async (_req, res) => {
-    res.set("cache-control", "no-store").json({ accounts, billing, beta, email, founder: await founderActive(), trialDays, trialNeedsCard: billing, supportEmail: env.SUPPORT_EMAIL || "" });
+    res.set("cache-control", "no-store").json({ accounts, billing, beta, email, founder: await founderActive(), trialDays, trialNeedsCard: billing, supportEmail: env.SUPPORT_EMAIL || "", supportWhatsapp });
   });
   // Sin base de datos el sitio funciona igual, con los datos en el dispositivo.
   app.use(["/api", "/admin"], (_req, _res, next) => next(db ? undefined : httpError(503, "Las cuentas se activan muy pronto. Mientras, tus datos se guardan en este dispositivo.")));

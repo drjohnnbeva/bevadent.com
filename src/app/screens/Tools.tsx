@@ -6,7 +6,7 @@ import { N, fmtDate, money, round50, slug, today, uid } from "../../lib/format";
 import { isValidBackup, makeDemo, normalize, type Quote, type State } from "../../lib/model";
 import { pdfPriceList, pdfQuote, priceText, quoteText } from "../../lib/pdf";
 import { can, type PlanId } from "../../lib/plans";
-import { Back, Chips, cleanNum, Confirm, CopyBtn, FileBtn, I, KV, Locked, Num, Pill, Stepper, Tag, Title, Txt, WhatsAppBtn } from "../../ui/kit";
+import { Back, Chips, cleanNum, Confirm, CopyBtn, FileBtn, I, KV, Locked, Num, Pill, Stepper, SupportWa, Tag, Title, Txt, WhatsAppBtn } from "../../ui/kit";
 import { useApp } from "../ctx";
 import { PATH } from "../router";
 
@@ -55,6 +55,13 @@ export function More() {
           <b>Invita a un colega: un mes gratis para los dos</b>
           <span className="muted small">Mándale tu enlace por WhatsApp. Su primer mes es gratis y tú ganas otro cuando empiece a pagar.</span>
         </button>
+      )}
+      {cloud.cfg?.supportWhatsapp && (
+        <section className="panel">
+          <h3>¿Dudas o algo no funciona?</h3>
+          <p className="muted small">Te contesta un dentista, normalmente el mismo día.</p>
+          <SupportWa cls="start" />
+        </section>
       )}
       <InstallCard />
       {wide && <TextSizePicker />}

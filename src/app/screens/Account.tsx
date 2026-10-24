@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { changePassword, deleteAccount, fetchReferral, invitedBy, lastEmail, openPortal, requestReset, resetPassword, sendSupport, signIn, signOut, signUp, type Referral } from "../../lib/cloud";
 import { fmtDate } from "../../lib/format";
 import { PLANS, TRIAL_DAYS } from "../../lib/plans";
-import { Back, Confirm, CopyBtn, I, Seg, Tag, Title, Txt, WhatsAppBtn } from "../../ui/kit";
+import { Back, Confirm, CopyBtn, I, Seg, SupportWa, Tag, Title, Txt, WhatsAppBtn } from "../../ui/kit";
 import { useApp } from "../ctx";
 import { PATH } from "../router";
 
@@ -174,6 +174,7 @@ function Forgot({ initialEmail, back }: { initialEmail: string; back: () => void
             {!auto && <Txt id="fwa" type="tel" autoComplete="tel" label="Tu WhatsApp (opcional)" placeholder="443 123 4567" hint="Para mandarte la contraseña temporal más rápido." value={wa} onChange={setWa} />}
             {err && <div className="note bad" role="alert">{err}</div>}
             <button className="btn" type="submit" disabled={busy}>{busy ? "Enviando…" : auto ? "Mandarme el enlace" : "Pedir ayuda para entrar"}</button>
+            <SupportWa cls="ghost-wa start" label="Prefiero escribir por WhatsApp" text={"Hola, olvidé mi contraseña de OdontoCostos." + (email.trim() ? " Mi correo es " + email.trim() + "." : "")} />
           </form>
         )}
         <button className="btn quiet sm start" onClick={back}><I.back />Volver a entrar</button>
@@ -263,6 +264,7 @@ function Support({ initialEmail = "", initialMessage = "", title = "¿Dudas o al
       {sent ? <p>Recibimos tu mensaje. Te respondemos a <b>{email.trim()}</b>.</p> : (
         <form className="stack" onSubmit={send} noValidate>
           <p className="muted small">{lead}</p>
+          {cloud.cfg?.supportWhatsapp && <><SupportWa cls="start" text={(cloud.session ? "Hola, soy " + cloud.session.user.email + ". " : "Hola, ") + (initialMessage || "Tengo una duda de OdontoCostos: ")} /><p className="muted small">O déjanos tu mensaje aquí:</p></>}
           {!cloud.session && <Txt id="semail" type="email" autoComplete="email" label="Tu correo" placeholder="ana@consultorio.mx" value={email} onChange={setEmail} />}
           <div className="field"><label htmlFor="smsg">Tu mensaje</label><textarea id="smsg" className="area" value={msg} onChange={(e) => setMsg(e.target.value)} placeholder="Puedes dejar también tu WhatsApp" /></div>
           {err && <div className="note bad" role="alert">{err}</div>}

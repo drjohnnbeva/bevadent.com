@@ -54,3 +54,12 @@ create index if not exists password_resets_user_idx on password_resets(user_id);
 -- Prueba con tarjeta (Stripe): una sola vez por cuenta.
 alter table users add column if not exists card_trial_used boolean not null default false;
 alter table subscriptions add column if not exists trial_end timestamptz;
+-- Invita a un colega: cada cuenta tiene su código; el premio se da cuando el invitado paga su primer mes.
+alter table users add column if not exists ref_code text unique;
+create table if not exists referrals (
+  referred_id uuid primary key references users(id) on delete cascade,
+  referrer_id uuid not null references users(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  rewarded_at timestamptz
+);
+create index if not exists referrals_referrer_idx on referrals(referrer_id);

@@ -28,6 +28,8 @@ export interface Entitlement {
   trialEnd?: string;
   /** Puede empezar la prueba con tarjeta (una vez por cuenta) */
   trialAvailable?: boolean;
+  /** Días de esa prueba: 30 si lo invitó un colega */
+  trialDays?: number;
 }
 export interface User { id: string; email: string }
 export interface Session { user: User }
@@ -42,6 +44,14 @@ const token = {
   del: () => { try { localStorage.removeItem(TOKEN_KEY); } catch { /* sin almacenamiento */ } },
 };
 export const hasToken = () => !!token.get();
+
+/** Código de invitación de un colega (?ref= en la página de venta o en la app), guardado hasta crear la cuenta. */
+const REF_KEY = "odontocostos.ref";
+export function captureRef(search = location.search) {
+  const r = new URLSearchParams(search).get("ref");
+  if (r && /^[A-Za-z0-9]{4,12}$/.test(r)) try { localStorage.setItem(REF_KEY, r.toUpperCase()); } catch { /* sin almacenamiento */ }
+}
+export const invitedBy = () => { try { return localStorage.getItem(REF_KEY) || ""; } catch { return ""; } };
 /** Último correo que entró en este dispositivo: para proponer "Ya tengo cuenta" */
 export const lastEmail = () => { try { return localStorage.getItem(LAST_EMAIL) || ""; } catch { return ""; } };
 
@@ -83,7 +93,13 @@ async function auth(path: string, body: Record<string, string>) {
   try { localStorage.setItem(LAST_EMAIL, a.user.email); } catch { /* sin almacenamiento */ }
   return { session: { user: a.user }, ent: a.entitlement };
 }
-export const signUp = (email: string, password: string) => auth("/api/auth/signup", { email, password });
+export async function signUp(email: string, password: string) {
+  const r = await auth("/api/auth/signup", { email, password, ref: invitedBy() });
+  try { localStorage.removeItem(REF_KEY); } catch { /* sin almacenamiento */ }
+  return r;
+}
+export interface Referral { code: string; link: string; invited: number; paid: number; days: number }
+export const fetchReferral = () => api<Referral>("/api/referral");
 export const signIn = (email: string, password: string) => auth("/api/auth/login", { email, password });
 /** Pide recuperar la contraseña. email: llega un enlace; manual: la solicitud queda en el panel del dueño. */
 export const requestReset = (email: string, whatsapp = "") => api<{ via: "email" | "manual" }>("/api/auth/forgot", "POST", { email, whatsapp });

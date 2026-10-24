@@ -22,6 +22,7 @@ export async function fakeStripe({ checkoutUrl = "https://checkout.stripe.test/s
   let n = 0;
   s.prices.list = async ({ lookup_keys }) => ({ data: [{ id: "price_" + lookup_keys[0] }] });
   s.customers.create = async (p) => { calls.push(["customer", p]); return { id: "cus_" + ++n }; };
+  s.customers.createBalanceTransaction = async (id, p) => { calls.push(["credit", id, p]); return { id: "cbtxn_" + ++n }; };
   s.coupons.retrieve = async () => ({ valid: founder, max_redemptions: 100, times_redeemed: 3 });
   s.checkout.sessions.create = async (p) => { calls.push(["checkout", p]); return { url: typeof checkoutUrl === "function" ? checkoutUrl(p) : checkoutUrl }; };
   s.billingPortal.sessions.create = async (p) => { calls.push(["portal", p]); return { url: "https://billing.stripe.test/p" }; };

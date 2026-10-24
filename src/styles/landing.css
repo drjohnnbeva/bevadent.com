@@ -33,6 +33,9 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .nav-cta .btn { min-height: 44px; padding: 9px 18px; font-size: 15.5px; white-space: nowrap; }
 @media (max-width: 420px) { .wide-only { display: none; } .nav-cta { gap: 14px; } .brand { font-size: 17px; } }
 
+.invited { margin: 12px auto 0; width: min(100% - 32px, 1120px); background: var(--gum-wash); color: var(--gum-text); border-radius: 14px; padding: 12px 16px; font-size: 16px; }
+.invited a { color: inherit; font-weight: 700; }
+
 /* Hero */
 .hero { padding-top: clamp(28px, 6vw, 72px); }
 .hero-in { display: grid; gap: 48px; align-items: center; }

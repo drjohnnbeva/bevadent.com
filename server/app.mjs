@@ -66,7 +66,7 @@ export function createApp({ db, env = process.env, dist = join(HERE, "..", "dist
   const billing = accounts && !!(stripe && env.STRIPE_WEBHOOK_SECRET);
   const beta = !billing;
   // Beta: Pro gratis al crear cuenta. Con cobro: Gratis sin tarjeta, y Plus o Pro con 7 días de prueba dando la tarjeta.
-  const betaDays = Number(env.BETA_TRIAL_DAYS || 60), cardTrialDays = Number(env.TRIAL_DAYS || 7);
+  const betaDays = Number(env.BETA_TRIAL_DAYS || 60), cardTrialDays = Number(env.TRIAL_DAYS || 7), referralDays = Number(env.REFERRAL_TRIAL_DAYS || 30);
   const trialDays = beta ? betaDays : cardTrialDays;
   const limitSignup = limiter(10, 60 * 60_000), limitLoginIp = limiter(30, 15 * 60_000), limitLoginEmail = limiter(8, 15 * 60_000), limitSupport = limiter(6, 60 * 60_000);
   const limitForgotIp = limiter(10, 60 * 60_000), limitForgotEmail = limiter(4, 60 * 60_000);
@@ -91,10 +91,50 @@ export function createApp({ db, env = process.env, dist = join(HERE, "..", "dist
     if (beta) return { plan: "pro", source: "beta" };
     // La prueba con tarjeta se ofrece una vez, a quien nunca ha tenido suscripción.
     const trialAvailable = billing && !u.card_trial_used && !sub;
-    if (new Date(u.trial_ends_at).getTime() > Date.now()) return { plan: "pro", source: "trial", trialEndsAt: u.trial_ends_at, status: sub?.status, trialAvailable };
-    return { plan: "free", source: "free", trialEndsAt: u.trial_ends_at, status: sub?.status, trialAvailable };
+    const offer = trialAvailable ? { trialAvailable, trialDays: await trialDaysFor(u) } : { trialAvailable };
+    if (new Date(u.trial_ends_at).getTime() > Date.now()) return { plan: "pro", source: "trial", trialEndsAt: u.trial_ends_at, status: sub?.status, ...offer };
+    return { plan: "free", source: "free", trialEndsAt: u.trial_ends_at, status: sub?.status, ...offer };
   }
   const publicUser = (u) => ({ id: u.id, email: u.email });
+  // A quien llegó invitado por un colega, la prueba con tarjeta le dura un mes.
+  const trialDaysFor = async (u) => ((await one("select 1 from referrals where referred_id = $1", [u.id])) ? referralDays : cardTrialDays);
+
+  // ---------- Invita a un colega ----------
+  const REF_CHARS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+  async function refCode(u) {
+    if (u.ref_code) return u.ref_code;
+    for (let i = 0; i < 5; i++) {
+      const code = Array.from(randomBytes(6), (b) => REF_CHARS[b % REF_CHARS.length]).join("");
+      try { await q("update users set ref_code = $1 where id = $2 and ref_code is null", [code, u.id]); } catch { continue; }
+      const back = await one("select ref_code from users where id = $1", [u.id]);
+      if (back?.ref_code) return back.ref_code;
+    }
+    throw new Error("No se pudo crear el código de invitación");
+  }
+  /** El colega invitado pagó su primer mes: quien lo invitó gana un mes (crédito en Stripe o 30 días de Pro). */
+  async function rewardReferrer(referredId) {
+    const r = await one("update referrals set rewarded_at = now() where referred_id = $1 and rewarded_at is null returning referrer_id", [referredId]);
+    if (!r) return;
+    const ref = await one("select u.*, s.status, s.plan, s.interval, s.stripe_subscription_id from users u left join subscriptions s on s.user_id = u.id where u.id = $1", [r.referrer_id]);
+    if (!ref) return;
+    let how = "pro";
+    if (ACTIVE.includes(ref.status) && ref.stripe_customer_id) {
+      let cents = PRICE[ref.plan]?.month * 100 || 9900;
+      try {
+        const inv = await stripe.invoices.createPreview({ customer: ref.stripe_customer_id, subscription: ref.stripe_subscription_id });
+        cents = ref.interval === "year" ? Math.round(inv.amount_due / 12) : inv.amount_due;
+      } catch { /* precio de lista */ }
+      if (cents > 0) {
+        await stripe.customers.createBalanceTransaction(ref.stripe_customer_id, { amount: -cents, currency: "mxn", description: "Un mes gratis por invitar a un colega" });
+        how = "credit";
+      }
+    }
+    if (how === "pro") await q("update users set trial_ends_at = greatest(trial_ends_at, now()) + interval '30 days' where id = $1", [ref.id]);
+    if (mailer) {
+      const text = `Hola:\n\nUno de los colegas que invitaste a OdontoCostos ya se suscribió. ${how === "credit" ? "Te regalamos un mes: se descuenta solo de tu próximo cobro." : "Te regalamos un mes de Pro."}\n\nGracias por recomendarnos.\n\nOdontoCostos`;
+      mailer.send({ to: ref.email, subject: "Ganaste un mes gratis en OdontoCostos", text }).catch((e) => console.error("Correo de invitación", e));
+    }
+  }
 
   // ---------- Stripe ----------
   const priceIds = new Map();
@@ -181,6 +221,13 @@ export function createApp({ db, env = process.env, dist = join(HERE, "..", "dist
         const s = event.data.object;
         if (s.mode === "subscription" && s.subscription) await syncSubscription(await stripe.subscriptions.retrieve(s.subscription), s.client_reference_id);
       } else if (event.type === "customer.subscription.trial_will_end") await trialReminder(event.data.object);
+      else if (event.type === "invoice.paid") {
+        const inv = event.data.object;
+        if (inv.amount_paid > 0) {
+          const payer = await one("select id from users where stripe_customer_id = $1", [inv.customer]);
+          if (payer) await rewardReferrer(payer.id);
+        }
+      }
       else if (event.type.startsWith("customer.subscription.")) await syncSubscription(event.data.object);
       res.json({ received: true });
     } catch (e) { console.error("Webhook", event.type, e); res.status(500).send("Error al procesar"); }
@@ -212,6 +259,11 @@ export function createApp({ db, env = process.env, dist = join(HERE, "..", "dist
     if (password.length > 200) throw httpError(400, "La contraseña es demasiado larga.");
     if (await one("select id from users where email = $1", [email])) throw httpError(409, "Ya hay una cuenta con ese correo. Entra con tu contraseña.");
     const u = await one("insert into users (email, password_hash, trial_ends_at) values ($1, $2, now() + ($3 || ' days')::interval) returning *", [email, await hashPassword(password), String(beta ? betaDays : 0)]);
+    const code = String(req.body?.ref || "").trim().toUpperCase();
+    if (/^[A-Z0-9]{4,12}$/.test(code)) {
+      const by = await one("select id from users where ref_code = $1 and id <> $2", [code, u.id]);
+      if (by) await q("insert into referrals (referred_id, referrer_id) values ($1, $2) on conflict do nothing", [u.id, by.id]);
+    }
     res.status(201).json({ token: await newSession(u.id), user: publicUser(u), entitlement: await entitlement(u) });
   });
   app.post("/api/auth/login", async (req, res) => {
@@ -282,6 +334,13 @@ export function createApp({ db, env = process.env, dist = join(HERE, "..", "dist
   });
 
   // ---------- Datos del consultorio ----------
+  app.get("/api/referral", async (req, res) => {
+    const u = await currentUser(req);
+    const code = await refCode(u);
+    const [c] = await q("select count(*)::int as invited, count(rewarded_at)::int as paid from referrals where referrer_id = $1", [u.id]);
+    res.set("cache-control", "no-store").json({ code, link: `${APP_URL}/?ref=${code}`, invited: c.invited, paid: c.paid, days: referralDays });
+  });
+
   app.get("/api/state", async (req, res) => {
     const u = await currentUser(req);
     const row = await one("select data, updated_at from clinic_states where user_id = $1", [u.id]);
@@ -325,16 +384,16 @@ export function createApp({ db, env = process.env, dist = join(HERE, "..", "dist
     const sub = await one("select status from subscriptions where user_id = $1", [u.id]);
     if (sub && ACTIVE.includes(sub.status)) throw httpError(409, "Ya tienes una suscripción. Cámbiala desde Administrar suscripción.");
     // Prueba con tarjeta: se pide la tarjeta hoy y se cobra al terminar, salvo que cancele. Avisamos 3 días antes.
-    const trial = !u.card_trial_used && !sub;
+    const trial = !u.card_trial_used && !sub, days = trial ? await trialDaysFor(u) : 0;
     const params = {
       mode: "subscription", customer: await customerFor(u), client_reference_id: u.id,
       line_items: [{ price: await priceId(plan, interval), quantity: 1 }],
       success_url: `${APP_URL}/app/?pago=ok`, cancel_url: `${APP_URL}/app/planes`, locale: "es-419",
       metadata: { user_id: u.id, plan },
-      subscription_data: { metadata: { user_id: u.id, plan }, ...(trial && { trial_period_days: cardTrialDays, trial_settings: { end_behavior: { missing_payment_method: "cancel" } } }) },
+      subscription_data: { metadata: { user_id: u.id, plan }, ...(trial && { trial_period_days: days, trial_settings: { end_behavior: { missing_payment_method: "cancel" } } }) },
       ...(trial && { payment_method_collection: "always" }),
       custom_text: { submit: { message: trial
-        ? `Hoy no se cobra nada. Si no cancelas, al terminar los ${cardTrialDays} días se cobra el precio de tu plan. Te avisamos por correo 3 días antes y cancelas desde tu cuenta con un clic. Pesos mexicanos, IVA incluido.`
+        ? `Hoy no se cobra nada. Si no cancelas, al terminar los ${days} días se cobra el precio de tu plan. Te avisamos por correo 3 días antes y cancelas desde tu cuenta con un clic. Pesos mexicanos, IVA incluido.`
         : "Precio en pesos mexicanos con IVA incluido. Cancela cuando quieras desde tu cuenta." } },
     };
     let session = null;
@@ -390,7 +449,8 @@ ${error ? `<p class="err" role="alert">${esc(error)}</p>` : ""}<button>Entrar al
     if (!env.ADMIN_PASSWORD) return res.status(503).type("html").send(page("<h1>Panel de OdontoCostos</h1><p>Falta poner ADMIN_PASSWORD en las variables del servicio en Render.</p>"));
     if (!isAdmin(req)) return res.type("html").send(loginPage());
     const [stats] = await q(`select (select count(*) from users)::int as users, (select count(*) from users where created_at > now() - interval '7 days')::int as week,
-      (select count(*) from clinic_states)::int as with_data, (select count(*) from feedback)::int as feedback`);
+      (select count(*) from clinic_states)::int as with_data, (select count(*) from feedback)::int as feedback,
+      (select count(*) from referrals)::int as invited, (select count(rewarded_at) from referrals)::int as invited_paid`);
     const subs = await q("select plan, interval, count(*)::int as n from subscriptions where status in ('active','trialing','past_due') group by plan, interval");
     const mrr = subs.reduce((s, x) => s + x.n * (x.interval === "year" ? PRICE[x.plan].year / 12 : PRICE[x.plan].month), 0);
     const votes = await q("select would_pay, count(*)::int as n from feedback group by would_pay order by n desc");
@@ -400,7 +460,7 @@ ${error ? `<p class="err" role="alert">${esc(error)}</p>` : ""}<button>Entrar al
     const d = (x) => esc(new Date(x).toLocaleString("es-MX", { timeZone: "America/Mexico_City", dateStyle: "medium", timeStyle: "short" }));
     const VOTE = { si: "Sí pagaría Pro", talvez: "Tal vez, a otro precio", no: "No" };
     res.type("html").send(page(`<div class="top"><h1>Panel de OdontoCostos</h1><form method="post" action="/admin/logout"><button class="ghost">Salir</button></form></div><p class="m">${beta ? "Beta gratis: el cobro con Stripe todavía no está activo." : "Cobro activo."} ${email ? "Recuperar contraseña: por correo, automático." : "Recuperar contraseña: manual (las solicitudes llegan a Mensajes de soporte)."}</p>
-<div class="k"><div>Cuentas<b>${stats.users}</b></div><div>Nuevas en 7 días<b>${stats.week}</b></div><div>Con datos guardados<b>${stats.with_data}</b></div><div>Suscripciones activas<b>${subs.reduce((s, x) => s + x.n, 0)}</b></div><div>Ingreso mensual<b>$${Math.round(mrr).toLocaleString("es-MX")}</b></div><div>Respuestas a la encuesta<b>${stats.feedback}</b></div></div>
+<div class="k"><div>Cuentas<b>${stats.users}</b></div><div>Nuevas en 7 días<b>${stats.week}</b></div><div>Con datos guardados<b>${stats.with_data}</b></div><div>Suscripciones activas<b>${subs.reduce((s, x) => s + x.n, 0)}</b></div><div>Ingreso mensual<b>$${Math.round(mrr).toLocaleString("es-MX")}</b></div><div>Respuestas a la encuesta<b>${stats.feedback}</b></div><div>Llegaron invitados por un colega<b>${stats.invited}</b></div><div>Invitados que ya pagan<b>${stats.invited_paid}</b></div></div>
 <h2>¿Pagarían?</h2><div class="w"><table><tr><th>Respuesta</th><th>Votos</th></tr>${votes.map((v) => `<tr><td>${esc(VOTE[v.would_pay] || v.would_pay)}</td><td>${v.n}</td></tr>`).join("") || '<tr><td colspan="2" class="m">Sin respuestas todavía</td></tr>'}</table></div>
 <h2>Comentarios</h2><div class="w"><table><tr><th>Fecha</th><th>Correo</th><th>Respuesta</th><th>Comentario</th></tr>${fb.map((f) => `<tr><td>${d(f.created_at)}</td><td>${esc(f.email || "sin cuenta")}</td><td>${esc(VOTE[f.would_pay] || f.would_pay)}</td><td>${esc(f.comment || "")}</td></tr>`).join("") || '<tr><td colspan="4" class="m">Sin comentarios</td></tr>'}</table></div>
 <h2>Mensajes de soporte</h2><div class="w"><table><tr><th>Fecha</th><th>Correo</th><th>Mensaje</th></tr>${msgs.map((m) => `<tr><td>${d(m.created_at)}</td><td>${esc(m.email)}</td><td>${esc(m.message)}</td></tr>`).join("") || '<tr><td colspan="3" class="m">Sin mensajes</td></tr>'}</table></div>

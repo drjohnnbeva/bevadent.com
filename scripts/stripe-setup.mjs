@@ -71,7 +71,7 @@ console.log("✓ Portal del cliente");
 
 const url = `${appUrl}/api/stripe/webhook`;
 const hooks = await stripe.webhookEndpoints.list({ limit: 100 });
-const EVENTS = ["checkout.session.completed", "customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted", "customer.subscription.trial_will_end"];
+const EVENTS = ["checkout.session.completed", "customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted", "customer.subscription.trial_will_end", "invoice.paid"];
 let secret = "(ya existía: usa el secreto que guardaste la primera vez)";
 const old = hooks.data.find((h) => h.url === url);
 if (old) await stripe.webhookEndpoints.update(old.id, { enabled_events: EVENTS });

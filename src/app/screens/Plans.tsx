@@ -19,7 +19,7 @@ export function Plans() {
   const live = cloud.mode === "live", founder = live ? !!cloud.cfg?.founder : true, ent = cloud.ent;
   const current: PlanId = st.plan, subscribed = ent.source === "subscription";
   const beta = live && !!cloud.cfg?.beta && !subscribed, accounts = live && !!cloud.cfg?.accounts, guest = accounts && !cloud.session;
-  const trialDays = cloud.cfg?.trialDays || TRIAL_DAYS;
+  const trialDays = ent.trialDays || cloud.cfg?.trialDays || TRIAL_DAYS;
   // Con cobro activo: Plus y Pro se prueban gratis dando la tarjeta, una vez por cuenta.
   const cardTrial = live && !!cloud.cfg?.trialNeedsCard && !subscribed, trialOffer = cardTrial && (guest || !!ent.trialAvailable);
   const firstCharge = fmtDate(new Date(Date.now() + trialDays * 864e5)), trialing = subscribed && ent.status === "trialing";

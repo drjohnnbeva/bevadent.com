@@ -4,6 +4,14 @@ const PRICES = {
   pro: { month: 199, year: 1990, founderMonth: 99, founderYear: 995 },
 } as const;
 
+// Llegó con el enlace de un colega: se guarda para cuando cree su cuenta.
+const ref = new URLSearchParams(location.search).get("ref");
+if (ref && /^[A-Za-z0-9]{4,12}$/.test(ref)) {
+  try { localStorage.setItem("odontocostos.ref", ref.toUpperCase()); } catch { /* sin almacenamiento */ }
+  const b = document.querySelector<HTMLElement>("[data-invited]");
+  if (b) b.hidden = false;
+}
+
 let founder = true;
 let interval: "month" | "year" = "month";
 const fmt = (n: number) => n.toLocaleString("es-MX");

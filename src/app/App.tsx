@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ApiError, fetchCloudState, fetchMe, FREE_ENT, hasToken, LINK_KEY, loadConfig, saveCloudState, type Config, type Entitlement, type Session } from "../lib/cloud";
+import { ApiError, captureRef, fetchCloudState, fetchMe, FREE_ENT, hasToken, LINK_KEY, loadConfig, saveCloudState, type Config, type Entitlement, type Session } from "../lib/cloud";
 import { getSaver, type Saver } from "../lib/files";
 import { loadLocal, makeDemo, normalize, saveLocal, type State } from "../lib/model";
 import { can, PLANS, type PlanId } from "../lib/plans";
@@ -64,7 +64,7 @@ export function App() {
     return n;
   }), []);
 
-  useEffect(() => { getSaver().then(setSaver); }, []);
+  useEffect(() => { getSaver().then(setSaver); captureRef(); }, []);
 
   // Conexión con el servidor: cuentas, nube y cobro.
   useEffect(() => {

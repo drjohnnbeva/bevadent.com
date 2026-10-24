@@ -334,6 +334,47 @@ const db2 = await testDb();
     await hook({ id: "evt_5", type: "customer.subscription.created", data: { object: sub("sub_9", "active", "pro_yearly", undefined, { customer: "cus_77", metadata: {} }) } });
     const x = await row(b.user.id); assert.equal(x.plan, "pro"); assert.equal(x.interval, "year");
   });
+  // ---------- Invita a un colega ----------
+  const paid = (customer, amount_paid, id) => hook({ id, type: "invoice.paid", data: { object: { id: "in_" + id, customer, amount_paid } } });
+  let code = "", carla = null;
+  await t("invitar: cada cuenta tiene su enlace", async () => {
+    const r = await api("/api/referral", { token: a.token });
+    assert.equal(r.status, 200); assert.match(r.json.code, /^[A-HJ-NP-Z2-9]{6}$/);
+    assert.equal(r.json.link, "https://odontocostos.test/?ref=" + r.json.code); assert.equal(r.json.invited, 0); assert.equal(r.json.days, 30);
+    assert.equal((await api("/api/referral", { token: a.token })).json.code, r.json.code);
+    assert.equal((await api("/api/referral")).status, 401);
+    code = r.json.code;
+  });
+  await t("invitar: el colega invitado prueba 30 días en vez de 7", async () => {
+    carla = (await api("/api/auth/signup", { method: "POST", body: { email: "carla@x.mx", password: "muelas-2026", ref: code.toLowerCase() } })).json;
+    assert.equal(carla.entitlement.trialAvailable, true); assert.equal(carla.entitlement.trialDays, 30);
+    const otro = (await api("/api/auth/signup", { method: "POST", body: { email: "dani@x.mx", password: "muelas-2026", ref: "ZZZZZZ" } })).json;
+    assert.equal(otro.entitlement.trialDays, 7);
+    const r = await api("/api/checkout", { method: "POST", token: carla.token, body: { plan: "pro", interval: "month" } });
+    assert.equal(r.status, 200);
+    const [, p] = stripe.calls.filter((c) => c[0] === "checkout").at(-1);
+    assert.equal(p.subscription_data.trial_period_days, 30); assert.match(p.custom_text.submit.message, /30 días/);
+  });
+  await t("invitar: el premio llega hasta que el colega paga, y una sola vez", async () => {
+    const cus = (await db2.query("select stripe_customer_id from users where id = $1", [carla.user.id])).rows[0].stripe_customer_id;
+    await paid(cus, 0, "r0");
+    assert.equal((await api("/api/referral", { token: a.token })).json.paid, 0);
+    assert.equal((await api("/api/me", { token: a.token })).json.entitlement.source, "free");
+    await paid(cus, 9900, "r1"); await paid(cus, 9900, "r2");
+    const r = (await api("/api/referral", { token: a.token })).json; assert.equal(r.invited, 1); assert.equal(r.paid, 1);
+    const e = (await api("/api/me", { token: a.token })).json.entitlement;
+    assert.equal(e.source, "trial"); assert.equal(e.plan, "pro");
+    const d = (new Date(e.trialEndsAt) - Date.now()) / 864e5; assert.ok(d > 29.9 && d < 30.1, String(d));
+  });
+  await t("invitar: si quien invita ya paga, el mes se descuenta de su próximo cobro", async () => {
+    const code2 = (await api("/api/referral", { token: b.token })).json.code;
+    const eli = (await api("/api/auth/signup", { method: "POST", body: { email: "eli@x.mx", password: "muelas-2026", ref: code2 } })).json;
+    await db2.query("update users set stripe_customer_id = 'cus_eli' where id = $1", [eli.user.id]);
+    await paid("cus_eli", 9900, "r3");
+    const credit = stripe.calls.find((c) => c[0] === "credit");
+    assert.ok(credit, "sin crédito"); assert.equal(credit[1], "cus_77");
+    assert.deepEqual(credit[2], { amount: -825, currency: "mxn", description: "Un mes gratis por invitar a un colega" });
+  });
   await t("borrar la cuenta cancela la suscripción en Stripe", async () => {
     assert.equal((await api("/api/account", { method: "DELETE", token: b.token })).status, 200);
     assert.ok(stripe.calls.some((c) => c[0] === "cancel" && c[1] === "sub_9"));

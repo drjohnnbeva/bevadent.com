@@ -21,7 +21,8 @@ export const TOOLS: { path: string; label: string; short: string; desc: string; 
 ];
 
 export function More() {
-  const { st, go, wide } = useApp();
+  const { st, go, wide, cloud } = useApp();
+  const invite = () => { go(PATH.account); setTimeout(() => document.getElementById("invitar")?.scrollIntoView({ behavior: "smooth", block: "start" }), 350); };
   return (
     <div className="screen">
       <Title title="Herramientas" lead="Lo que usas para cobrar, compartir y cuidar tus datos." />
@@ -47,6 +48,13 @@ export function More() {
             ))}
           </div>
         </section>
+      )}
+      {cloud.session && (
+        <button className="tool invite-row" onClick={invite}>
+          <span className="lk"><I.user /></span>
+          <b>Invita a un colega: un mes gratis para los dos</b>
+          <span className="muted small">Mándale tu enlace por WhatsApp. Su primer mes es gratis y tú ganas otro cuando empiece a pagar.</span>
+        </button>
       )}
       <InstallCard />
       {wide && <TextSizePicker />}

@@ -3,7 +3,7 @@
 // Uso: npm run build && node e2e/live-test.mjs
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { chromium } from "playwright";
+import { chromium, devices } from "playwright";
 import { fakeStripe, serve, testDb } from "./testdb.mjs";
 
 const SECRET = "whsec_live_test";
@@ -19,10 +19,12 @@ billBase = bill.base;
 const nodb = await serve({ db: null, env: {} });
 
 const browser = await chromium.launch();
+let inviteLink = "";
 const errors = [], results = [];
 const t = async (name, fn) => { try { await fn(); results.push("✓ " + name); } catch (e) { results.push("✗ " + name + ": " + e.message.split("\n").slice(0, 6).join(" | ")); } };
-async function page(base, w = 1280) {
-  const ctx = await browser.newContext({ viewport: { width: w, height: 900 }, acceptDownloads: true });
+async function page(base, w = 1280, dev) {
+  const ctx = await browser.newContext(dev || { viewport: { width: w, height: 900 }, acceptDownloads: true });
+  await ctx.route("https://wa.me/**", (r) => r.fulfill({ status: 200, body: "WhatsApp", contentType: "text/plain" }));
   const p = await ctx.newPage();
   p.on("pageerror", (e) => errors.push(e.message));
   await p.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.fulfill({ status: 200, body: "", contentType: "text/css" }));
@@ -32,6 +34,13 @@ async function page(base, w = 1280) {
 }
 const until = async (fn, ms = 6000) => { const end = Date.now() + ms; while (Date.now() < end) { if (await fn()) return; await new Promise((r) => setTimeout(r, 150)); } throw new Error("tiempo agotado"); };
 const cloudRent = async (d = db) => (await d.query("select data->'clinic'->>'rent' as rent from clinic_states")).rows[0]?.rent;
+/** Toca un botón que abre WhatsApp y regresa el texto que lleva. */
+async function waText(p, selector) {
+  const [pop] = await Promise.all([p.waitForEvent("popup"), p.click(selector)]);
+  const u = new URL(pop.url()); await pop.close();
+  assert.equal(u.hostname, "wa.me");
+  return { to: u.pathname.slice(1), text: u.searchParams.get("text") };
+}
 
 // ---------- Beta ----------
 const g = await page(beta.base);
@@ -99,7 +108,50 @@ await t("la cuenta explica la beta y deja escribir a soporte", async () => {
   await g.waitForSelector("text=Recibimos tu mensaje");
   assert.equal((await db.query("select email from support_messages")).rows[0].email, "ana@consultorio.mx");
 });
+await t("invitar: la cuenta da el enlace y lo manda por WhatsApp", async () => {
+  await g.waitForSelector("#invitar input");
+  inviteLink = await g.inputValue("#invitar input");
+  assert.match(inviteLink, /\/\?ref=[A-HJ-NP-Z2-9]{6}$/);
+  const w = await waText(g, "#invitar button:has-text('Mandar por WhatsApp')");
+  assert.equal(w.to, ""); assert.ok(w.text.includes(inviteLink)); assert.match(w.text, /primer mes es gratis/);
+});
+await t("invitar: el colega llega con el enlace y queda ligado a quien lo invitó", async () => {
+  const c = await page(beta.base);
+  const u = new URL(inviteLink); // el enlace trae la dirección pública; se abre la misma ruta en el servidor de prueba
+  await c.goto(beta.base + u.pathname + u.search); await c.waitForSelector("[data-invited]:not([hidden])");
+  await c.click("[data-invited] a"); await c.waitForSelector("text=Te invitó un colega");
+  await c.fill("#email", "colega@dental.mx"); await c.fill("#password", "muelas-2026"); await c.click("button[type=submit]");
+  await c.waitForSelector(".side-plan:has-text('Plan Pro')", { timeout: 8000 });
+  const r = (await db.query("select a.email as quien from referrals r join users a on a.id = r.referrer_id join users b on b.id = r.referred_id where b.email = 'colega@dental.mx'")).rows;
+  assert.deepEqual(r, [{ quien: "ana@consultorio.mx" }]);
+  assert.equal(await c.evaluate(() => localStorage.getItem("odontocostos.ref")), null);
+  await c.context().close();
+});
+await t("WhatsApp: la lista de precios abre WhatsApp con el texto en la computadora", async () => {
+  await g.click(".side-item:has-text('Lista de precios')");
+  const w = await waText(g, "button:has-text('Mandar por WhatsApp')");
+  assert.match(w.text, /Lista de precios/); assert.match(w.text, /Resina: \$/);
+});
+await t("WhatsApp: el presupuesto con teléfono abre el chat del paciente", async () => {
+  await g.click(".side-item:has-text('Presupuestos')"); await g.click("button:has-text('Nuevo presupuesto')");
+  await g.fill("#qpat", "Juan Pérez"); await g.fill("#qphone", "452 123 4567");
+  await g.selectOption("#qadd", { label: "Resina" });
+  const w = await waText(g, "button:has-text('Mandar por WhatsApp al paciente')");
+  assert.equal(w.to, "524521234567"); assert.match(w.text, /Paciente: Juan Pérez/); assert.match(w.text, /\*Total: \$/);
+});
+await t("plantillas: cargar endodoncia agrega sus tratamientos sin repetir", async () => {
+  await g.click(".side-item:has-text('Tratamientos')");
+  const before = await g.locator(".tbl tbody tr").count();
+  await g.click("button:has-text('Cargar tratamientos de mi especialidad')");
+  await g.click(".spec:has-text('Endodoncia')"); await g.waitForSelector("text=Endodoncia molar");
+  await g.click("button:has-text('Agregar a mis tratamientos')");
+  await g.waitForSelector(".toast:has-text('5 tratamientos de endodoncia')");
+  assert.equal(await g.locator(".tbl tbody tr").count(), before + 5);
+  await g.click("button:has-text('Cargar tratamientos de mi especialidad')"); await g.click(".spec:has-text('Endodoncia')");
+  await g.click("button:has-text('Agregar a mis tratamientos')"); await g.waitForSelector(".toast:has-text('Ya tenías esos tratamientos')");
+});
 await t("cambiar contraseña", async () => {
+  await g.click(".side-plan button:has-text('Cuenta')");
   await g.click("button:has-text('Cambiar mi contraseña')");
   await g.fill("#pwcur", "muelas-2026"); await g.fill("#pwnew", "muelas-2027"); await g.click("button:has-text('Guardar')");
   await g.waitForSelector(".toast:has-text('Contraseña cambiada')");
@@ -115,6 +167,22 @@ await t("al volver propone entrar con su correo", async () => {
   await g.waitForSelector("h1:has-text('Entra a tu cuenta')");
   assert.equal(await g.inputValue("#email"), "ana@consultorio.mx");
   await g.waitForSelector("button:has-text('¿Olvidaste tu contraseña?')");
+});
+
+await t("WhatsApp en el teléfono: comparte el PDF con el menú del teléfono", async () => {
+  // Sin base de datos todos usan Pro, así que la lista de precios está abierta sin cuenta.
+  const p = await page(nodb.base, 0, devices["iPhone 13"]);
+  await p.addInitScript(() => {
+    window.__shared = [];
+    navigator.canShare = (d) => !!(d && d.files);
+    navigator.share = async (d) => { window.__shared.push({ name: d.files[0].name, type: d.files[0].type, size: d.files[0].size, text: d.text }); };
+  });
+  await p.goto(nodb.base + "/app/lista-de-precios"); await p.waitForSelector("button:has-text('Mandar por WhatsApp')");
+  await p.waitForTimeout(1500);
+  await p.click("button:has-text('Mandar por WhatsApp')");
+  const sh = await p.evaluate(() => window.__shared);
+  assert.equal(sh.length, 1); assert.match(sh[0].name, /lista-de-precios\.pdf$/); assert.equal(sh[0].type, "application/pdf"); assert.ok(sh[0].size > 1000);
+  await p.context().close();
 });
 
 // Teléfono: entrar con la contraseña y recibir los datos

@@ -1,8 +1,8 @@
-import { useState } from "react";
-import { changePassword, deleteAccount, lastEmail, openPortal, requestReset, resetPassword, sendSupport, signIn, signOut, signUp } from "../../lib/cloud";
+import { useEffect, useState } from "react";
+import { changePassword, deleteAccount, fetchReferral, invitedBy, lastEmail, openPortal, requestReset, resetPassword, sendSupport, signIn, signOut, signUp, type Referral } from "../../lib/cloud";
 import { fmtDate } from "../../lib/format";
 import { PLANS, TRIAL_DAYS } from "../../lib/plans";
-import { Back, Confirm, I, Seg, Tag, Title, Txt } from "../../ui/kit";
+import { Back, Confirm, CopyBtn, I, Seg, Tag, Title, Txt, WhatsAppBtn } from "../../ui/kit";
 import { useApp } from "../ctx";
 import { PATH } from "../router";
 
@@ -71,6 +71,7 @@ export function Account() {
             <p className="small">{cloud.sync === "error" ? "No pudimos guardar en la nube. Tus cambios siguen en este dispositivo y se suben cuando vuelva la conexión." : "Se guardan en tu cuenta cada vez que cambias algo."}</p>
             <button className="btn ghost sm start" onClick={() => go(PATH.backup)}><I.save />Descargar un respaldo</button>
           </section>
+          <Invite />
         </div>
         <div className="col">
           <Password />
@@ -122,6 +123,7 @@ function SignIn({ trialDays, startForgot = false }: { trialDays: number; startFo
   return (
     <div className="screen">{!wide && <Back to={PATH.more} label="Más" />}
       <Title title={tab === "new" ? "Crea tu cuenta" : "Entra a tu cuenta"} lead={lead} />
+      {tab === "new" && invitedBy() && <div className="note good narrow"><b>Te invitó un colega.</b> {beta ? "Cuando empiece el cobro, tu primer mes de Plus o Pro es gratis." : "Tu primer mes de Plus o Pro es gratis: 30 días de prueba en lugar de 7."}</div>}
       <section className="panel narrow stack">
         <Seg label="Cuenta" value={tab} onChange={(v) => { setTab(v); setErr(""); }} options={[["new", "Crear cuenta"], ["in", "Ya tengo cuenta"]]} />
         <form className="stack" onSubmit={submit} noValidate>
@@ -268,6 +270,32 @@ function Support({ initialEmail = "", initialMessage = "", title = "¿Dudas o al
           {cloud.cfg?.supportEmail && <p className="muted small">O escribe a <b>{cloud.cfg.supportEmail}</b>.</p>}
         </form>
       )}
+    </section>
+  );
+}
+
+/** Invita a un colega: su primer mes es gratis y, cuando empieza a pagar, quien invitó gana un mes. */
+function Invite() {
+  const { cloud } = useApp();
+  const [r, setR] = useState<Referral | null>(null), [err, setErr] = useState(false);
+  useEffect(() => { fetchReferral().then(setR, () => setErr(true)); }, []);
+  if (err) return null;
+  const msg = r ? "Te recomiendo OdontoCostos: te dice cuánto te cuesta cada tratamiento, cuánto cobrar y cuánto te queda. Con mi enlace tu primer mes es gratis: " + r.link : "";
+  return (
+    <section className="panel invite" id="invitar">
+      <div className="row gap8"><I.user /><h3>Invita a un colega: un mes gratis para los dos</h3></div>
+      <p className="small">Tu colega tiene su primer mes de Plus o Pro gratis. Cuando empiece a pagar, tú también ganas un mes{cloud.ent.source === "subscription" ? ": se descuenta solo de tu próximo cobro" : ""}.</p>
+      {r ? (
+        <>
+          <div className="inp"><input readOnly aria-label="Tu enlace para invitar" value={r.link} onFocus={(e) => e.target.select()} /></div>
+          <div className="row">
+            <WhatsAppBtn text={msg} label="Mandar por WhatsApp" />
+            <CopyBtn text={r.link} label="Copiar enlace" />
+          </div>
+          {r.invited > 0 && <p className="muted small">Has invitado a {r.invited} {r.invited === 1 ? "colega" : "colegas"}{r.paid ? "; " + r.paid + " ya " + (r.paid === 1 ? "paga" : "pagan") + " y ganaste " + r.paid + (r.paid === 1 ? " mes" : " meses") : ""}.</p>}
+          {cloud.cfg?.beta && <p className="muted small">Durante la beta todos usan Pro gratis; el mes se gana cuando tu colega empiece a pagar.</p>}
+        </>
+      ) : <p className="muted small">Cargando tu enlace…</p>}
     </section>
   );
 }

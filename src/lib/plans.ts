@@ -58,6 +58,7 @@ export const PLANS: Record<PlanId, Plan> = {
 };
 export const PLAN_ORDER: PlanId[] = ["free", "plus", "pro"];
 export const FREE_TREATS = 6;
-export const TRIAL_DAYS = 14;
+/** Días de prueba de Plus y Pro con tarjeta (el servidor manda el valor real en /api/config) */
+export const TRIAL_DAYS = 7;
 
 export const can = (plan: PlanId, need: PlanId) => (PLANS[plan] || PLANS.free).rank >= PLANS[need].rank;

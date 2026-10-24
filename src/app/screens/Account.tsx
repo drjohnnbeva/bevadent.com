@@ -20,7 +20,7 @@ export function Account() {
   if (cloud.mode === "preview") return (
     <div className="screen">{head}
       <Title title="Tu cuenta" lead="En esta vista previa no hay cuentas: tus datos se guardan solo en este dispositivo." />
-      <section className="panel narrow"><p>En el sitio publicado entras con tu correo y una contraseña, tus datos se guardan en la nube y los ves en el teléfono y en la computadora. Al crear tu cuenta tienes {TRIAL_DAYS} días de Pro gratis.</p>
+      <section className="panel narrow"><p>En el sitio publicado entras con tu correo y una contraseña, tus datos se guardan en la nube y los ves en el teléfono y en la computadora. Crear tu cuenta es gratis, y Plus y Pro los pruebas {TRIAL_DAYS} días sin pagar.</p>
         <button className="btn ghost sm start" onClick={() => go(PATH.plans)}>Ver planes</button></section>
     </div>
   );
@@ -56,7 +56,8 @@ export function Account() {
             <div className="row between"><h3 className="ellipsis">{cloud.session.user.email}</h3><Tag p={st.plan} /></div>
             {ent.source === "beta" && <p>Estás en la <b>beta</b>: tienes Pro sin costo. Antes de que empiece el cobro te avisamos, y conservas el precio de fundador.</p>}
             {ent.source === "trial" && <p>Estás probando <b>Pro</b>: te {daysLeft === 1 ? "queda 1 día" : "quedan " + daysLeft + " días"}. Después pasas a Gratis y tus datos se quedan guardados.</p>}
-            {ent.source === "subscription" && <p>Tienes <b>{plan.name}</b>{ent.interval === "year" ? " anual" : " mensual"}. {ent.cancelAtPeriodEnd ? "Se cancela" : "Se renueva"} el {ent.periodEnd ? fmtDate(new Date(ent.periodEnd)) : "próximo periodo"}.{ent.status === "past_due" && " Tu último pago no pasó: actualiza tu tarjeta para no perder el plan."}</p>}
+            {ent.source === "subscription" && ent.status === "trialing" && ent.trialEnd && <p>Estás probando <b>{plan.name}</b> gratis. {ent.cancelAtPeriodEnd ? <>Cancelaste: el {fmtDate(new Date(ent.trialEnd))} regresas a Gratis sin pagar nada.</> : <>El <b>{fmtDate(new Date(ent.trialEnd))}</b> se cobra tu primer {ent.interval === "year" ? "año" : "mes"}. Si no quieres seguir, cancela antes en <b>Administrar suscripción</b>.</>}</p>}
+            {ent.source === "subscription" && ent.status !== "trialing" && <p>Tienes <b>{plan.name}</b>{ent.interval === "year" ? " anual" : " mensual"}. {ent.cancelAtPeriodEnd ? "Se cancela" : "Se renueva"} el {ent.periodEnd ? fmtDate(new Date(ent.periodEnd)) : "próximo periodo"}.{ent.status === "past_due" && " Tu último pago no pasó: actualiza tu tarjeta para no perder el plan."}</p>}
             {ent.source === "free" && <p>Estás en <b>Gratis</b>. Sube a Plus o Pro cuando quieras.</p>}
             <div className="row">
               {ent.source === "subscription"
@@ -106,7 +107,7 @@ function SignIn({ trialDays, startForgot = false }: { trialDays: number; startFo
     try {
       const r = await (tab === "new" ? signUp(em, pw) : signIn(em, pw));
       cloud.signedIn(r.session, r.ent);
-      toast(tab === "new" ? (beta ? "Listo: tu cuenta está creada y tienes Pro gratis" : "Listo: tienes Pro gratis por " + trialDays + " días") : "Entraste a tu cuenta");
+      toast(tab === "new" ? (beta ? "Listo: tu cuenta está creada y tienes Pro gratis" : cloud.cfg?.trialNeedsCard ? "Listo: tu cuenta está creada" : "Listo: tienes Pro gratis por " + trialDays + " días") : "Entraste a tu cuenta");
       go(PATH.home);
     } catch (x: any) {
       setErr(x.message);
@@ -116,6 +117,7 @@ function SignIn({ trialDays, startForgot = false }: { trialDays: number; startFo
   };
   const lead = beta
     ? "Tus datos se guardan en la nube y los ves en el teléfono y en la computadora. Durante la beta, Pro es gratis para quien crea su cuenta."
+    : cloud.cfg?.trialNeedsCard ? "Tus datos se guardan en la nube y los ves en el teléfono y en la computadora. Crear tu cuenta es gratis y no pide tarjeta."
     : "Tus datos se guardan en la nube y los ves en el teléfono y en la computadora. La primera vez tienes " + trialDays + " días de Pro gratis, sin tarjeta.";
   return (
     <div className="screen">{!wide && <Back to={PATH.more} label="Más" />}

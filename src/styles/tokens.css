@@ -8,17 +8,17 @@
   --panel: #ffffff;
   --wash: #e9efeb;       /* zonas hundidas, pistas de barras */
   --ink: #10201b;
-  --ink-2: #4a5b55;      /* texto secundario: 6.3:1 sobre el fondo */
+  --ink-2: #3f504a;      /* texto secundario: 7.8:1 sobre el fondo, para leer sin lentes */
   --rule: #d9e2dd;
   --scrub: #0b7a61;      /* acento: 5.3:1 con texto blanco */
   --scrub-ink: #ffffff;
-  --scrub-text: #08654f;
+  --scrub-text: #075a46;
   --scrub-wash: #dff0e8;
   --gum: #e0607a;        /* rosa encía */
   --gum-text: #b73a55;
   --gum-wash: #fbe7ec;
-  --amber: #8f5300; --amber-wash: #fbefdc;
-  --red: #b93a2b; --red-wash: #fbe7e3;
+  --amber: #7a4600; --amber-wash: #fbefdc;
+  --red: #a3301f; --red-wash: #fbe7e3;
   --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4;
   --shadow-1: 0 1px 2px rgba(16, 32, 27, .06), 0 1px 1px rgba(16, 32, 27, .03);
   --shadow-2: 0 10px 30px -12px rgba(16, 32, 27, .22), 0 2px 6px rgba(16, 32, 27, .06);
@@ -30,7 +30,7 @@
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --paper: #0a1311; --panel: #101c19; --wash: #0d1715; --ink: #e5eeea; --ink-2: #9cb0a9; --rule: #21312c;
+    --paper: #0a1311; --panel: #101c19; --wash: #0d1715; --ink: #e5eeea; --ink-2: #aebfb9; --rule: #2a3c36;
     --scrub: #3cc39b; --scrub-ink: #04140f; --scrub-text: #63d7b2; --scrub-wash: #12302a;
     --gum: #f08ba0; --gum-text: #f6a2b4; --gum-wash: #33171e;
     --amber: #f1b35d; --amber-wash: #2c2213; --red: #f78a72; --red-wash: #331912;
@@ -40,7 +40,7 @@
   }
 }
 :root[data-theme="dark"] {
-  --paper: #0a1311; --panel: #101c19; --wash: #0d1715; --ink: #e5eeea; --ink-2: #9cb0a9; --rule: #21312c;
+  --paper: #0a1311; --panel: #101c19; --wash: #0d1715; --ink: #e5eeea; --ink-2: #aebfb9; --rule: #2a3c36;
   --scrub: #3cc39b; --scrub-ink: #04140f; --scrub-text: #63d7b2; --scrub-wash: #12302a;
   --gum: #f08ba0; --gum-text: #f6a2b4; --gum-wash: #33171e;
   --amber: #f1b35d; --amber-wash: #2c2213; --red: #f78a72; --red-wash: #331912;
@@ -50,9 +50,13 @@
 }
 
 *, *::before, *::after { box-sizing: border-box; }
-html { -webkit-tap-highlight-color: transparent; -webkit-text-size-adjust: 100%; }
+/* Tamaño de letra: todo está en rem. Normal ya es más grande que lo usual (18px);
+   el dentista puede subirlo desde Más → Tamaño de letra. */
+html { font-size: 112.5%; -webkit-tap-highlight-color: transparent; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+:root[data-text="lg"] { font-size: 125%; }
+:root[data-text="xl"] { font-size: 137.5%; }
 html, body { background: var(--paper); color: var(--ink); }
-body { margin: 0; font: 400 15.5px/1.55 var(--f-text); font-feature-settings: "tnum" 0; }
+body { margin: 0; font: 400 1rem/1.55 var(--f-text); font-feature-settings: "tnum" 0; }
 h1, h2, h3 { margin: 0; font-family: var(--f-display); text-wrap: balance; letter-spacing: -0.015em; }
 p { margin: 0; }
 a { color: var(--scrub-text); text-underline-offset: 3px; }

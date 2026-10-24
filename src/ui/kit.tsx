@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useApp } from "../app/ctx";
 import { PATH } from "../app/router";
 import type { Status } from "../lib/calc";
@@ -19,6 +19,10 @@ export const I = {
   lock: ic(<><rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></>),
   back: ic(<path d="M15 18l-6-6 6-6" />),
   chev: ic(<path d="M9 18l6-6-6-6" />),
+  share: ic(<><path d="M12 3v12" /><path d="M8 7l4-4 4 4" /><path d="M6 11v8a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-8" /></>),
+  dots: ic(<><circle cx="12" cy="5" r="1.2" fill="currentColor" /><circle cx="12" cy="12" r="1.2" fill="currentColor" /><circle cx="12" cy="19" r="1.2" fill="currentColor" /></>),
+  plusSq: ic(<><rect x="4" y="4" width="16" height="16" rx="4" /><path d="M12 8v8M8 12h8" /></>),
+  phone: ic(<><rect x="7" y="2.5" width="10" height="19" rx="2.5" /><path d="M11 18.5h2" /></>),
   plus: ic(<path d="M12 5v14M5 12h14" />),
   minus: ic(<path d="M5 12h14" />),
   x: ic(<path d="M6 6l12 12M18 6L6 18" />),
@@ -64,14 +68,44 @@ export function Money({ v, cls = "" }: { v: number; cls?: string }) {
   );
 }
 
+/** Lo que se escribe en un campo de cantidad: sin comas ni letras ("12,000" → "12000"). */
+export const cleanNum = (v: string) => {
+  const t = v.replace(/,/g, "").replace(/[^\d.-]/g, "");
+  const neg = t.startsWith("-"), body = t.replace(/-/g, "");
+  const [i, ...d] = body.split(".");
+  return (neg ? "-" : "") + i + (d.length ? "." + d.join("") : "");
+};
+/** Cantidades largas con comas para leerlas fácil: 142200 → 142,200. */
+export const groupNum = (v: string) => {
+  const m = /^(-?)(\d+)(\.\d*)?$/.exec(v);
+  return m ? m[1] + m[2].replace(/\B(?=(\d{3})+(?!\d))/g, ",") + (m[3] || "") : v;
+};
+// Campo de texto con teclado numérico (no type="number": en la computadora la rueda del mouse cambiaba la cifra sin querer).
+// Las comas se quedan mientras escribe; el cursor se acomoda para que no brinque al final.
 export function Num(p: { id: string; label: string; hint?: ReactNode; value: unknown; onChange: (v: string) => void; prefix?: string; suffix?: string; disabled?: boolean; step?: string }) {
   const prefix = p.prefix ?? "$";
+  const ref = useRef<HTMLInputElement>(null), caretDigits = useRef<number | null>(null);
+  const raw = p.value === null || p.value === undefined ? "" : String(p.value);
+  // Después de cada cambio, el cursor vuelve a quedar detrás de la misma cifra.
+  useLayoutEffect(() => {
+    const box = ref.current, before = caretDigits.current;
+    caretDigits.current = null;
+    if (!box || before === null || document.activeElement !== box) return;
+    let i = 0;
+    for (let n = 0; i < box.value.length && n < before; i++) if (box.value[i] !== ",") n++;
+    box.setSelectionRange(i, i);
+  });
+  const change = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const el = e.target, caret = el.selectionStart ?? el.value.length;
+    caretDigits.current = cleanNum(el.value.slice(0, caret)).length;
+    p.onChange(cleanNum(el.value));
+  };
   return (
     <div className="field">
       <label htmlFor={p.id}>{p.label}</label>
       <div className="inp">
         {prefix && <span className="affix">{prefix}</span>}
-        <input id={p.id} inputMode="decimal" type="number" step={p.step || "any"} value={(p.value as any) ?? ""} disabled={p.disabled} onChange={(e) => p.onChange(e.target.value)} />
+        <input ref={ref} id={p.id} inputMode="decimal" type="text" autoComplete="off" enterKeyHint="done" value={groupNum(raw)} disabled={p.disabled} onChange={change} />
         {p.suffix && <span className="affix">{p.suffix}</span>}
       </div>
       {p.hint && <small>{p.hint}</small>}
@@ -162,7 +196,7 @@ export function Stepper({ value, onChange, label }: { value: unknown; onChange: 
   return (
     <div className="stepper">
       <button className="btn ghost icon" aria-label={"Uno menos de " + label} onClick={() => onChange(Math.max(0, v - 1))}><I.minus /></button>
-      <input aria-label={"Cantidad de " + label} type="number" inputMode="numeric" min="0" value={(value as any) ?? ""} onChange={(e) => onChange(e.target.value)} />
+      <input aria-label={"Cantidad de " + label} type="text" inputMode="numeric" value={(value as any) ?? ""} onChange={(e) => onChange(cleanNum(e.target.value))} />
       <button className="btn ghost icon" aria-label={"Uno más de " + label} onClick={() => onChange(v + 1)}><I.plus /></button>
     </div>
   );

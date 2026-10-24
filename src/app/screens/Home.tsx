@@ -1,15 +1,16 @@
 import { useState } from "react";
 import { clinicCalc, effClinic, monthPL, treatRows } from "../../lib/calc";
 import { sendFeedback } from "../../lib/cloud";
-import { mkey, mlabel, money } from "../../lib/format";
+import { fmtDate, mkey, mlabel, money } from "../../lib/format";
 import { can, PLANS } from "../../lib/plans";
-import { Chips, Locked, Money, StackBar, Tag } from "../../ui/kit";
+import { Chips, I, Locked, Money, StackBar, Tag } from "../../ui/kit";
 import { useApp } from "../ctx";
 import { parts100 } from "../parts";
-import { PATH } from "../router";
+import { PATH, treatmentPath } from "../router";
+import { InstallCard } from "./Comfort";
 import { TreatList, TreatTable } from "./Treatlist";
 
-const FB_KEY = "odontocostos.feedback";
+const FB_KEY = "odontocostos.feedback", INSTALL_KEY = "odontocostos.install-hidden";
 
 export function Home() {
   const { st, go, wide, cloud } = useApp();
@@ -18,19 +19,40 @@ export function Home() {
   const low = rows.filter((x) => x.s === "bad" || x.s === "warn").length, mk = mkey(), pl = pro ? monthPL(st, mk) : null;
   const hidden = !plus && full.perHour - cc.perHour >= 1;
   const trialDays = cloud.ent.source === "trial" && cloud.ent.trialEndsAt ? Math.max(0, Math.ceil((new Date(cloud.ent.trialEndsAt).getTime() - Date.now()) / 864e5)) : null;
+  const [installHidden, setInstallHidden] = useState(() => { try { return !!localStorage.getItem(INSTALL_KEY); } catch { return true; } });
+  const hideInstall = () => { try { localStorage.setItem(INSTALL_KEY, "1"); } catch { /* sin almacenamiento */ } setInstallHidden(true); };
 
   return (
     <div className="screen">
       {!st.edited && (
-        <div className="note stack">
-          <span><b>Este es un consultorio de ejemplo.</b> Cambia las cifras por las tuyas y todo se recalcula solo.</span>
-          <button className="btn sm start" onClick={() => go(PATH.clinic)}>Poner mis datos</button>
-        </div>
+        <section className="panel start-here">
+          <div className="stack tight">
+            <h2>Empieza aquí</h2>
+            <p>Ahora ves un <b>consultorio de ejemplo</b>. Pon tus números en 3 pasos, como 5 minutos, y todo se recalcula solo.</p>
+          </div>
+          <ol className="bigsteps">
+            <li><button onClick={() => go(PATH.clinic)}><span className="n">1</span><span className="t"><b>Tus gastos del mes</b><span>Renta, sueldos, luz y cuántas horas atiendes</span></span><I.chev /></button></li>
+            <li><button onClick={() => go(PATH.treatments)}><span className="n">2</span><span className="t"><b>Tus tratamientos</b><span>Cuánto dura cada uno y qué material usa</span></span><I.chev /></button></li>
+            <li><button onClick={() => go(st.order[0] ? treatmentPath(st.order[0]) : PATH.treatments)}><span className="n">3</span><span className="t"><b>Cuánto cobrar</b><span>Tu precio mínimo y el recomendado</span></span><I.chev /></button></li>
+          </ol>
+        </section>
       )}
       {st.edited && cloud.mode === "live" && cloud.cfg?.accounts && !cloud.session && (
         <div className="note good row between">
-          <span>{cloud.cfg.beta ? "Crea tu cuenta gratis: guardas tus datos en la nube y usas Pro sin costo durante la beta." : "Crea tu cuenta gratis: guardas tus datos en la nube y pruebas Pro " + cloud.cfg.trialDays + " días."}</span>
+          <span>{cloud.cfg.beta ? "Crea tu cuenta gratis: guardas tus datos en la nube y usas Pro sin costo durante la beta." : "Crea tu cuenta gratis: guardas tus datos en la nube y los ves en el teléfono y en la computadora."}</span>
           <button className="btn sm" onClick={() => go(PATH.account)}>Crear cuenta</button>
+        </div>
+      )}
+      {cloud.ent.status === "trialing" && cloud.ent.trialEnd && !cloud.ent.cancelAtPeriodEnd && (
+        <div className="note good row between">
+          <span>Estás probando {PLANS[st.plan].name} gratis. El {fmtDate(new Date(cloud.ent.trialEnd))} se cobra tu primer {cloud.ent.interval === "year" ? "año" : "mes"}; si no quieres seguir, cancela antes.</span>
+          <button className="btn sm" onClick={() => go(PATH.account)}>Ver mi cuenta</button>
+        </div>
+      )}
+      {cloud.session && cloud.ent.trialAvailable && cloud.ent.source === "free" && st.edited && (
+        <div className="note good row between">
+          <span>Prueba Pro {cloud.cfg?.trialDays || 7} días gratis: estado de resultados, impuestos y cuánto te queda libre. Te avisamos antes de cobrar.</span>
+          <button className="btn sm" onClick={() => go(PATH.plans)}>Ver Pro</button>
         </div>
       )}
       {trialDays !== null && (
@@ -80,16 +102,7 @@ export function Home() {
           ) : (
             <Locked need="pro" title="¿Cuánto te queda libre cada mes?">Registra lo que atiendes y te armamos tu estado de resultados, con impuestos y lo que de verdad te llevas a casa.</Locked>
           )}
-          {!st.edited && (
-            <section className="panel">
-              <h2>Cómo funciona</h2>
-              <ol className="steps">
-                <li><b>Anota los gastos de tu consultorio</b> y cuántas horas atiendes.</li>
-                <li><b>Revisa tus tratamientos:</b> minutos, materiales y laboratorio.</li>
-                <li><b>Ve tu costo real,</b> tu precio mínimo y uno recomendado.</li>
-              </ol>
-            </section>
-          )}
+          {st.edited && !installHidden && <InstallCard onClose={hideInstall} />}
           {st.edited && <Feedback />}
         </div>
       </div>

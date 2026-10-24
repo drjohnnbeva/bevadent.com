@@ -40,9 +40,8 @@ if (!__PREVIEW__) {
         const lead = document.querySelector<HTMLElement>("[data-lead]");
         if (lead) lead.textContent = "Estamos en beta: crea tu cuenta y usa Pro gratis. Antes de que empiece el cobro te avisamos, y conservas el precio de fundador.";
         for (const a of document.querySelectorAll<HTMLAnchorElement>("[data-cta]")) { a.textContent = "Usar Pro gratis en la beta"; a.href = "/app/cuenta"; }
-      } else if (c.trialDays) {
-        const lead = document.querySelector<HTMLElement>("[data-lead]");
-        if (lead) lead.textContent = `En pesos, con IVA incluido. Al crear tu cuenta tienes ${c.trialDays} días de Pro gratis, sin tarjeta.`;
+        const faq = document.querySelector<HTMLElement>("[data-faq-trial]");
+        if (faq) faq.textContent = "Durante la beta, Pro es gratis al crear tu cuenta, sin tarjeta. Antes de que empiece el cobro te avisamos por correo, y nunca se cobra nada sin que tú contrates un plan.";
       }
     })
     .catch(() => { /* sin servidor: se queda el precio de fundador */ });

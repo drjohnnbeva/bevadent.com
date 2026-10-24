@@ -14,6 +14,7 @@ export const SCHEMA = readFileSync(join(HERE, "schema.sql"), "utf8");
 
 const LOOKUP = { plus: { month: "plus_monthly", year: "plus_yearly" }, pro: { month: "pro_monthly", year: "pro_yearly" } };
 const PRICE = { plus: { month: 99, year: 990 }, pro: { month: 199, year: 1990 } };
+const PLAN_NAME = { plus: "Plus", pro: "Pro" };
 const ACTIVE = ["active", "trialing", "past_due"];
 const SESSION_DAYS = 90;
 const httpError = (status, message) => Object.assign(new Error(message), { status, public: true });
@@ -64,7 +65,9 @@ export function createApp({ db, env = process.env, dist = join(HERE, "..", "dist
   const accounts = !!db, email = accounts && !!mailer;
   const billing = accounts && !!(stripe && env.STRIPE_WEBHOOK_SECRET);
   const beta = !billing;
-  const trialDays = Number(beta ? env.BETA_TRIAL_DAYS || 60 : env.TRIAL_DAYS || 14);
+  // Beta: Pro gratis al crear cuenta. Con cobro: Gratis sin tarjeta, y Plus o Pro con 7 días de prueba dando la tarjeta.
+  const betaDays = Number(env.BETA_TRIAL_DAYS || 60), cardTrialDays = Number(env.TRIAL_DAYS || 7);
+  const trialDays = beta ? betaDays : cardTrialDays;
   const limitSignup = limiter(10, 60 * 60_000), limitLoginIp = limiter(30, 15 * 60_000), limitLoginEmail = limiter(8, 15 * 60_000), limitSupport = limiter(6, 60 * 60_000);
   const limitForgotIp = limiter(10, 60 * 60_000), limitForgotEmail = limiter(4, 60 * 60_000);
   const q = async (text, params) => (await db.query(text, params)).rows;
@@ -84,10 +87,12 @@ export function createApp({ db, env = process.env, dist = join(HERE, "..", "dist
   async function entitlement(u) {
     const sub = await one("select * from subscriptions where user_id = $1", [u.id]);
     if (sub && ACTIVE.includes(sub.status) && (sub.plan === "plus" || sub.plan === "pro"))
-      return { plan: sub.plan, source: "subscription", status: sub.status, interval: sub.interval, periodEnd: sub.current_period_end, cancelAtPeriodEnd: sub.cancel_at_period_end };
+      return { plan: sub.plan, source: "subscription", status: sub.status, interval: sub.interval, periodEnd: sub.current_period_end, cancelAtPeriodEnd: sub.cancel_at_period_end, ...(sub.status === "trialing" && sub.trial_end && { trialEnd: sub.trial_end }) };
     if (beta) return { plan: "pro", source: "beta" };
-    if (new Date(u.trial_ends_at).getTime() > Date.now()) return { plan: "pro", source: "trial", trialEndsAt: u.trial_ends_at, status: sub?.status };
-    return { plan: "free", source: "free", trialEndsAt: u.trial_ends_at, status: sub?.status };
+    // La prueba con tarjeta se ofrece una vez, a quien nunca ha tenido suscripción.
+    const trialAvailable = billing && !u.card_trial_used && !sub;
+    if (new Date(u.trial_ends_at).getTime() > Date.now()) return { plan: "pro", source: "trial", trialEndsAt: u.trial_ends_at, status: sub?.status, trialAvailable };
+    return { plan: "free", source: "free", trialEndsAt: u.trial_ends_at, status: sub?.status, trialAvailable };
   }
   const publicUser = (u) => ({ id: u.id, email: u.email });
 
@@ -126,13 +131,35 @@ export function createApp({ db, env = process.env, dist = join(HERE, "..", "dist
     // Un aviso tardío de una suscripción vieja no debe pisar la nueva.
     if (existing && existing.stripe_subscription_id !== sub.id && !ACTIVE.includes(sub.status)) return;
     const item = sub.items?.data?.[0], price = item?.price, end = sub.current_period_end ?? item?.current_period_end;
+    const iso = (t) => (t ? new Date(t * 1000).toISOString() : null);
     await q(
-      `insert into subscriptions (user_id, stripe_subscription_id, plan, interval, status, current_period_end, cancel_at_period_end, updated_at)
-       values ($1, $2, $3, $4, $5, $6, $7, now())
+      `insert into subscriptions (user_id, stripe_subscription_id, plan, interval, status, current_period_end, cancel_at_period_end, trial_end, updated_at)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, now())
        on conflict (user_id) do update set stripe_subscription_id = excluded.stripe_subscription_id, plan = excluded.plan, interval = excluded.interval,
-         status = excluded.status, current_period_end = excluded.current_period_end, cancel_at_period_end = excluded.cancel_at_period_end, updated_at = now()`,
-      [userId, sub.id, planFromLookup(price?.lookup_key) || sub.metadata?.plan || null, price?.recurring?.interval || null, sub.status, end ? new Date(end * 1000).toISOString() : null, !!sub.cancel_at_period_end],
+         status = excluded.status, current_period_end = excluded.current_period_end, cancel_at_period_end = excluded.cancel_at_period_end, trial_end = excluded.trial_end, updated_at = now()`,
+      [userId, sub.id, planFromLookup(price?.lookup_key) || sub.metadata?.plan || null, price?.recurring?.interval || null, sub.status, iso(end), !!sub.cancel_at_period_end, iso(sub.trial_end)],
     );
+    if (sub.trial_end) await q("update users set card_trial_used = true where id = $1", [userId]);
+    return userId;
+  }
+
+  // Aviso 3 días antes de que termine la prueba (Stripe manda customer.subscription.trial_will_end).
+  async function trialReminder(sub) {
+    const userId = await syncSubscription(sub);
+    if (!userId || !mailer || sub.status !== "trialing" || sub.cancel_at_period_end) return;
+    const u = await one("select email from users where id = $1", [userId]);
+    const plan = PLAN_NAME[planFromLookup(sub.items?.data?.[0]?.price?.lookup_key) || sub.metadata?.plan] || "tu plan";
+    let amount = (sub.items?.data?.[0]?.price?.unit_amount ?? 0) / 100;
+    try { amount = (await stripe.invoices.createPreview({ customer: sub.customer, subscription: sub.id })).amount_due / 100; } catch { /* se usa el precio de lista */ }
+    const day = new Date(sub.trial_end * 1000).toLocaleDateString("es-MX", { timeZone: "America/Mexico_City", weekday: "long", day: "numeric", month: "long" });
+    const link = `${APP_URL}/app/cuenta`;
+    const text = `Hola:\n\nTu prueba gratis de ${plan} en OdontoCostos termina el ${day}. Ese día se cobran $${amount.toLocaleString("es-MX")} a tu tarjeta y sigues con ${plan}.\n\nSi no quieres seguir, cancela antes desde Cuenta → Administrar suscripción y no se cobra nada:\n${link}\n\nOdontoCostos`;
+    const html = `<div style="font:16px/1.5 system-ui,sans-serif;color:#10201b;max-width:480px;margin:0 auto;padding:24px">
+<p style="font-weight:800;font-size:20px;margin:0 0 16px">OdontoCostos</p>
+<p>Tu prueba gratis de <b>${esc(plan)}</b> termina el <b>${esc(day)}</b>. Ese día se cobran <b>$${esc(amount.toLocaleString("es-MX"))}</b> a tu tarjeta y sigues con ${esc(plan)}.</p>
+<p>Si no quieres seguir, cancela antes y no se cobra nada.</p>
+<p style="margin:24px 0"><a href="${esc(link)}" style="background:#0b7a61;color:#fff;text-decoration:none;font-weight:700;padding:12px 20px;border-radius:12px;display:inline-block">Ver mi suscripción</a></p></div>`;
+    await mailer.send({ to: u.email, subject: `Tu prueba de ${plan} termina el ${day}`, text, html });
   }
 
   const app = express();
@@ -153,7 +180,8 @@ export function createApp({ db, env = process.env, dist = join(HERE, "..", "dist
       if (event.type === "checkout.session.completed") {
         const s = event.data.object;
         if (s.mode === "subscription" && s.subscription) await syncSubscription(await stripe.subscriptions.retrieve(s.subscription), s.client_reference_id);
-      } else if (event.type.startsWith("customer.subscription.")) await syncSubscription(event.data.object);
+      } else if (event.type === "customer.subscription.trial_will_end") await trialReminder(event.data.object);
+      else if (event.type.startsWith("customer.subscription.")) await syncSubscription(event.data.object);
       res.json({ received: true });
     } catch (e) { console.error("Webhook", event.type, e); res.status(500).send("Error al procesar"); }
   });
@@ -166,7 +194,7 @@ export function createApp({ db, env = process.env, dist = join(HERE, "..", "dist
     res.json({ ok: true, billing, beta, accounts });
   });
   app.get("/api/config", async (_req, res) => {
-    res.set("cache-control", "no-store").json({ accounts, billing, beta, email, founder: await founderActive(), trialDays, supportEmail: env.SUPPORT_EMAIL || "" });
+    res.set("cache-control", "no-store").json({ accounts, billing, beta, email, founder: await founderActive(), trialDays, trialNeedsCard: billing, supportEmail: env.SUPPORT_EMAIL || "" });
   });
   // Sin base de datos el sitio funciona igual, con los datos en el dispositivo.
   app.use(["/api", "/admin"], (_req, _res, next) => next(db ? undefined : httpError(503, "Las cuentas se activan muy pronto. Mientras, tus datos se guardan en este dispositivo.")));
@@ -183,7 +211,7 @@ export function createApp({ db, env = process.env, dist = join(HERE, "..", "dist
     if (password.length < 8) throw httpError(400, "La contraseña necesita al menos 8 caracteres.");
     if (password.length > 200) throw httpError(400, "La contraseña es demasiado larga.");
     if (await one("select id from users where email = $1", [email])) throw httpError(409, "Ya hay una cuenta con ese correo. Entra con tu contraseña.");
-    const u = await one("insert into users (email, password_hash, trial_ends_at) values ($1, $2, now() + ($3 || ' days')::interval) returning *", [email, await hashPassword(password), String(trialDays)]);
+    const u = await one("insert into users (email, password_hash, trial_ends_at) values ($1, $2, now() + ($3 || ' days')::interval) returning *", [email, await hashPassword(password), String(beta ? betaDays : 0)]);
     res.status(201).json({ token: await newSession(u.id), user: publicUser(u), entitlement: await entitlement(u) });
   });
   app.post("/api/auth/login", async (req, res) => {
@@ -296,12 +324,18 @@ export function createApp({ db, env = process.env, dist = join(HERE, "..", "dist
     if (!["plus", "pro"].includes(plan) || !["month", "year"].includes(interval)) throw httpError(400, "Elige un plan y un periodo válidos.");
     const sub = await one("select status from subscriptions where user_id = $1", [u.id]);
     if (sub && ACTIVE.includes(sub.status)) throw httpError(409, "Ya tienes una suscripción. Cámbiala desde Administrar suscripción.");
+    // Prueba con tarjeta: se pide la tarjeta hoy y se cobra al terminar, salvo que cancele. Avisamos 3 días antes.
+    const trial = !u.card_trial_used && !sub;
     const params = {
       mode: "subscription", customer: await customerFor(u), client_reference_id: u.id,
       line_items: [{ price: await priceId(plan, interval), quantity: 1 }],
       success_url: `${APP_URL}/app/?pago=ok`, cancel_url: `${APP_URL}/app/planes`, locale: "es-419",
-      metadata: { user_id: u.id, plan }, subscription_data: { metadata: { user_id: u.id, plan } },
-      custom_text: { submit: { message: "Precio en pesos mexicanos con IVA incluido. Cancela cuando quieras desde tu cuenta." } },
+      metadata: { user_id: u.id, plan },
+      subscription_data: { metadata: { user_id: u.id, plan }, ...(trial && { trial_period_days: cardTrialDays, trial_settings: { end_behavior: { missing_payment_method: "cancel" } } }) },
+      ...(trial && { payment_method_collection: "always" }),
+      custom_text: { submit: { message: trial
+        ? `Hoy no se cobra nada. Si no cancelas, al terminar los ${cardTrialDays} días se cobra el precio de tu plan. Te avisamos por correo 3 días antes y cancelas desde tu cuenta con un clic. Pesos mexicanos, IVA incluido.`
+        : "Precio en pesos mexicanos con IVA incluido. Cancela cuando quieras desde tu cuenta." } },
     };
     let session = null;
     if (await founderActive()) {

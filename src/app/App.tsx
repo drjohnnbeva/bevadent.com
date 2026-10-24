@@ -8,6 +8,7 @@ import { Ctx, useApp, type AppCtx, type Cloud, type SetState } from "./ctx";
 import { navigate, parse, PATH, usePath, type Route } from "./router";
 import { Account } from "./screens/Account";
 import { Clinic } from "./screens/Clinic";
+import { TextSizeButton, TextSizeMini } from "./screens/Comfort";
 import { Finance } from "./screens/Finance";
 import { Home } from "./screens/Home";
 import { Plans } from "./screens/Plans";
@@ -172,10 +173,11 @@ export function App() {
       <main className="main">
         <div className="app">
           <header className="top">
-            <a className="brand" href={import.meta.env.VITE_HOME_HREF}><Logo size={26} /><span>OdontoCostos</span></a>
+            <a className="brand" href={import.meta.env.VITE_HOME_HREF} aria-label="OdontoCostos, página principal"><Logo size={30} /><span className="brand-name">OdontoCostos</span></a>
             <div className="row gap8 nowrap">
+              <TextSizeButton />
               <button className="planbtn" onClick={() => navigate(PATH.plans)} aria-label={"Plan " + PLANS[plan].name + ". Ver planes"}>{PLANS[plan].name}<I.chev /></button>
-              <button className="btn ghost icon round" aria-label="Tu cuenta" onClick={() => navigate(PATH.account)}><I.user /></button>
+              <button className="btn ghost sm round acct" aria-label="Tu cuenta" onClick={() => navigate(PATH.account)}><I.user /><span>Cuenta</span></button>
             </div>
           </header>
           <Screen route={route} key={route.name === "treatment" ? "t" + route.id : route.name} />
@@ -184,7 +186,7 @@ export function App() {
       <nav className="tabs" aria-label="Secciones">
         <div>
           {TABS.map(([p, l, Ico, names]) => (
-            <button key={p} className="tab" aria-current={names.includes(route.name) ? "page" : undefined} onClick={() => navigate(p)}><span className="tab-ico"><Ico /></span>{l}</button>
+            <button key={p} className="tab" aria-current={names.includes(route.name) ? "page" : undefined} onClick={() => navigate(p)}><span className="tab-ico"><Ico /></span><span className="tab-l">{l}</span></button>
           ))}
         </div>
       </nav>
@@ -227,17 +229,18 @@ function Side({ route }: { route: Route }) {
           <button key={path} className="side-item" aria-current={cur([parse(path).name])} onClick={() => navigate(path)}><Icon /><span>{short}</span>{need && !can(st.plan, need) && <Tag p={need} />}</button>
         ))}
       </nav>
+      <TextSizeMini />
       <div className="side-plan">
         {cloud.mode === "live" && cloud.session ? (
           <>
             <span className="muted small ellipsis">{cloud.session.user.email}</span>
-            <div className="row between"><b>Plan {PLANS[st.plan].name}</b>{cloud.ent.source === "trial" && <span className="pill good">Prueba</span>}{cloud.ent.source === "beta" && <span className="pill good">Beta</span>}</div>
+            <div className="row between"><b>Plan {PLANS[st.plan].name}</b>{(cloud.ent.source === "trial" || cloud.ent.status === "trialing") && <span className="pill good">Prueba</span>}{cloud.ent.source === "beta" && <span className="pill good">Beta</span>}</div>
             <div className="row gap8"><button className="btn ghost sm grow" onClick={() => navigate(PATH.plans)}>Planes</button><button className="btn ghost sm grow" aria-current={cur(["account"])} onClick={() => navigate(PATH.account)}>Cuenta</button></div>
           </>
         ) : cloud.mode === "live" && cloud.cfg?.accounts ? (
           <>
             <b>Guarda tus datos en la nube</b>
-            <span className="muted small">{cloud.cfg.beta ? "Crea tu cuenta y usa Pro gratis durante la beta." : "Crea tu cuenta y prueba Pro gratis."}</span>
+            <span className="muted small">{cloud.cfg.beta ? "Crea tu cuenta y usa Pro gratis durante la beta." : "Gratis y sin tarjeta. Los ves en el teléfono y en la computadora."}</span>
             <button className="btn sm" onClick={() => navigate(PATH.account)}>Crear cuenta o entrar</button>
           </>
         ) : cloud.mode === "live" && cloud.cfg?.beta ? (

@@ -10,6 +10,8 @@ export interface Config {
   beta: boolean;
   /** Hay correo configurado: recuperar la contraseña manda un enlace */
   email: boolean;
+  /** Con cobro activo: Plus y Pro se prueban gratis dando la tarjeta */
+  trialNeedsCard: boolean;
   founder: boolean;
   trialDays: number;
   supportEmail: string;
@@ -22,6 +24,10 @@ export interface Entitlement {
   interval?: string;
   periodEnd?: string;
   cancelAtPeriodEnd?: boolean;
+  /** Suscripción en prueba: fecha del primer cobro */
+  trialEnd?: string;
+  /** Puede empezar la prueba con tarjeta (una vez por cuenta) */
+  trialAvailable?: boolean;
 }
 export interface User { id: string; email: string }
 export interface Session { user: User }

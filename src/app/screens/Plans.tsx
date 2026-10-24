@@ -20,6 +20,9 @@ export function Plans() {
   const current: PlanId = st.plan, subscribed = ent.source === "subscription";
   const beta = live && !!cloud.cfg?.beta && !subscribed, accounts = live && !!cloud.cfg?.accounts, guest = accounts && !cloud.session;
   const trialDays = cloud.cfg?.trialDays || TRIAL_DAYS;
+  // Con cobro activo: Plus y Pro se prueban gratis dando la tarjeta, una vez por cuenta.
+  const cardTrial = live && !!cloud.cfg?.trialNeedsCard && !subscribed, trialOffer = cardTrial && (guest || !!ent.trialAvailable);
+  const firstCharge = fmtDate(new Date(Date.now() + trialDays * 864e5)), trialing = subscribed && ent.status === "trialing";
 
   const act = async (id: PlanId) => {
     if (!live) { set((s) => ({ ...s, plan: id }), false); toast("Plan " + PLANS[id].name + " activado en la vista previa"); return; }
@@ -34,6 +37,7 @@ export function Plans() {
     if (PLANS[id].rank < PLANS[current].rank) return live && !cloud.session ? "Empezar gratis" : "Cambiar a " + PLANS[id].name;
     if (!live) return "Probar " + PLANS[id].name;
     if (beta) return "Crear cuenta y usar Pro gratis";
+    if (trialOffer && id !== "free") return (guest ? "Crear cuenta y probar " : "Probar " + PLANS[id].name + " ") + trialDays + " días gratis";
     if (!cloud.session) return id === "free" ? "Empezar gratis" : "Crear cuenta y probar " + trialDays + " días";
     if (subscribed) return "Cambiar en mi suscripción";
     return "Suscribirme a " + PLANS[id].name;
@@ -41,11 +45,14 @@ export function Plans() {
   return (
     <div className="screen">
       {!wide && <Back to={PATH.more} label="Más" />}
-      <Title title="Elige cuánto quieres saber de tus números" lead={beta ? "Estamos en beta: mientras, Pro es gratis. Así quedan los precios cuando empiece el cobro." : "Empieza gratis. Al crear tu cuenta tienes " + trialDays + " días de Pro sin tarjeta; después decides."} />
+      <Title title="Elige cuánto quieres saber de tus números" lead={beta ? "Estamos en beta: mientras, Pro es gratis. Así quedan los precios cuando empiece el cobro."
+        : cardTrial ? "Gratis para siempre, sin tarjeta. Plus y Pro los pruebas " + trialDays + " días gratis: te avisamos antes de cobrar y cancelas con un clic."
+        : "Empieza gratis. Al crear tu cuenta tienes " + trialDays + " días de Pro sin tarjeta; después decides."} />
       {!live && <div className="note plain">Vista previa: aquí puedes probar cualquier plan sin pagar. En el sitio publicado se cobra con tarjeta.</div>}
       {beta && <div className="note good">{guest ? "Crea tu cuenta y usa Pro sin costo durante la beta." : "Tienes Pro sin costo durante la beta."} Antes de que empiece el cobro te avisamos, y conservas el precio de fundador.</div>}
       {live && ent.source === "trial" && ent.trialEndsAt && <div className="note good">Estás probando Pro hasta el {fmtDate(new Date(ent.trialEndsAt))}.</div>}
-      {live && subscribed && <div className="note good">Tienes {PLANS[current].name}{ent.interval === "year" ? " anual" : " mensual"}. {ent.cancelAtPeriodEnd ? "Se cancela" : "Se renueva"} el {ent.periodEnd ? fmtDate(new Date(ent.periodEnd)) : "próximo periodo"}.</div>}
+      {trialing && ent.trialEnd && <div className="note good">Estás probando {PLANS[current].name} gratis. {ent.cancelAtPeriodEnd ? "Cancelaste: el " + fmtDate(new Date(ent.trialEnd)) + " regresas a Gratis sin pagar nada." : "El " + fmtDate(new Date(ent.trialEnd)) + " se cobra tu primer " + (ent.interval === "year" ? "año" : "mes") + ". Si no quieres seguir, cancela antes en Administrar suscripción."}</div>}
+      {live && subscribed && !trialing && <div className="note good">Tienes {PLANS[current].name}{ent.interval === "year" ? " anual" : " mensual"}. {ent.cancelAtPeriodEnd ? "Se cancela" : "Se renueva"} el {ent.periodEnd ? fmtDate(new Date(ent.periodEnd)) : "próximo periodo"}.</div>}
       <div className="row between">
         <div className="seg-wrap small-seg"><Seg label="Periodo" value={interval} onChange={setInterval} options={[["month", "Mensual"], ["year", "Anual: 2 meses gratis"]]} /></div>
         {founder && <span className="founder-badge">Precio de fundador para los primeros 100 dentistas, de por vida</span>}
@@ -59,7 +66,7 @@ export function Plans() {
           const onTrial = live && ent.source === "trial" && id === "pro";
           return (
             <section key={id} className={"plan" + (id === "pro" ? " featured" : "") + (cur ? " cur" : "")}>
-              <div className="row between"><h2>{p.name}</h2>{cur && <span className="pill good"><I.check />Tu plan</span>}{onTrial && <span className="pill good">En prueba</span>}</div>
+              <div className="row between"><h2>{p.name}</h2>{cur && <span className="pill good">{trialing ? "En prueba" : <><I.check />Tu plan</>}</span>}{onTrial && <span className="pill good">En prueba</span>}</div>
               <p className="muted">{p.tag}</p>
               <div className="plan-price">
                 {pr.now !== pr.normal && <s className="muted num">${pr.normal.toLocaleString("es-MX")}</s>}
@@ -72,6 +79,7 @@ export function Plans() {
                   {busy === id ? "Abriendo el pago…" : label(id)}
                 </button>
               )}
+              {button && trialOffer && id !== "free" && <p className="small muted">Hoy no se cobra nada. Si no cancelas, el {firstCharge} se cobran <b className="num">${pr.now.toLocaleString("es-MX")}</b>. Te avisamos por correo 3 días antes.</p>}
             </section>
           );
         })}

@@ -51,3 +51,6 @@ create table if not exists password_resets (
   created_at timestamptz not null default now()
 );
 create index if not exists password_resets_user_idx on password_resets(user_id);
+-- Prueba con tarjeta (Stripe): una sola vez por cuenta.
+alter table users add column if not exists card_trial_used boolean not null default false;
+alter table subscriptions add column if not exists trial_end timestamptz;

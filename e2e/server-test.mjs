@@ -43,7 +43,7 @@ const mail = { sent: [], send: async (m) => { mail.sent.push(m); } };
   let tok = "", tok2 = "";
   await t("beta: configuración pública sin secretos", async () => {
     const c = await api("/api/config");
-    assert.deepEqual({ ...c.json }, { accounts: true, billing: false, beta: true, email: true, founder: true, trialDays: 60, supportEmail: "hola@odontocostos.com" });
+    assert.deepEqual({ ...c.json }, { accounts: true, billing: false, beta: true, email: true, founder: true, trialDays: 60, trialNeedsCard: false, supportEmail: "hola@odontocostos.com" });
     assert.ok(!c.text.includes(ADMIN));
   });
   await t("rutas: 404 de página y de API", async () => {
@@ -228,10 +228,14 @@ const mail = { sent: [], send: async (m) => { mail.sent.push(m); } };
 const db2 = await testDb();
 {
   const stripe = await fakeStripe();
-  const s = await serve({ db: db2, stripeClient: stripe, env: { APP_URL: "https://odontocostos.test", STRIPE_WEBHOOK_SECRET: SECRET, STRIPE_FOUNDER_COUPON: "FUNDADOR", TRIAL_DAYS: "14" } }), api = client(s.base);
-  const hook = (event) => {
+  const billEnv = { APP_URL: "https://odontocostos.test", STRIPE_WEBHOOK_SECRET: SECRET, STRIPE_FOUNDER_COUPON: "FUNDADOR" };
+  const s = await serve({ db: db2, stripeClient: stripe, env: billEnv }), api = client(s.base);
+  // Mismo cobro y misma base, con correo: para el aviso antes de que termine la prueba.
+  const mail2 = { sent: [], send: async (m) => { mail2.sent.push(m); } };
+  const s2 = await serve({ db: db2, stripeClient: stripe, mailer: mail2, env: billEnv });
+  const hook = (event, base = s.base) => {
     const payload = JSON.stringify(event);
-    return fetch(s.base + "/api/stripe/webhook", { method: "POST", headers: { "content-type": "application/json", "stripe-signature": stripe.webhooks.generateTestHeaderString({ payload, secret: SECRET }) }, body: payload });
+    return fetch(base + "/api/stripe/webhook", { method: "POST", headers: { "content-type": "application/json", "stripe-signature": stripe.webhooks.generateTestHeaderString({ payload, secret: SECRET }) }, body: payload });
   };
   const sub = (id, status, lookup, uid, extra = {}) => ({
     id, object: "subscription", customer: "cus_1", status, cancel_at_period_end: false, metadata: { user_id: uid, plan: "pro" },
@@ -243,7 +247,7 @@ const db2 = await testDb();
 
   await t("cobro: salud y configuración", async () => {
     assert.equal((await api("/api/health")).json.billing, true);
-    const c = (await api("/api/config")).json; assert.equal(c.beta, false); assert.equal(c.founder, true); assert.equal(c.trialDays, 14); assert.equal(c.email, false);
+    const c = (await api("/api/config")).json; assert.equal(c.beta, false); assert.equal(c.founder, true); assert.equal(c.trialDays, 7); assert.equal(c.trialNeedsCard, true); assert.equal(c.email, false);
   });
   await t("sin correo, recuperar deja la solicitud en el panel", async () => {
     const r = await api("/api/auth/forgot", { method: "POST", body: { email: "ana@x.mx", whatsapp: "443 123 4567" } });
@@ -251,9 +255,8 @@ const db2 = await testDb();
     const m = (await db2.query("select email, message from support_messages")).rows[0];
     assert.equal(m.email, "ana@x.mx"); assert.match(m.message, /Olvidé mi contraseña\. WhatsApp: 443 123 4567/);
   });
-  await t("cuenta nueva tiene 14 días de prueba de Pro", async () => {
-    assert.equal(a.entitlement.source, "trial"); assert.equal(a.entitlement.plan, "pro");
-    const d = (new Date(a.entitlement.trialEndsAt) - Date.now()) / 864e5; assert.ok(d > 13.9 && d < 14.1);
+  await t("cuenta nueva: Gratis sin tarjeta, con la prueba de 7 días disponible", async () => {
+    assert.equal(a.entitlement.source, "free"); assert.equal(a.entitlement.plan, "free"); assert.equal(a.entitlement.trialAvailable, true);
   });
   await t("prueba vencida regresa a Gratis", async () => {
     await db2.query("update users set trial_ends_at = now() - interval '1 day' where id = $1", [b.user.id]);
@@ -269,20 +272,38 @@ const db2 = await testDb();
     const [, p] = stripe.calls.filter((c) => c[0] === "checkout").at(-1);
     assert.equal(p.customer, "cus_1"); assert.equal(p.client_reference_id, a.user.id); assert.equal(p.line_items[0].price, "price_pro_monthly");
     assert.deepEqual(p.discounts, [{ coupon: "FUNDADOR" }]); assert.equal(p.success_url, "https://odontocostos.test/app/?pago=ok");
+    assert.equal(p.subscription_data.trial_period_days, 7); assert.equal(p.payment_method_collection, "always");
+    assert.equal(p.subscription_data.trial_settings.end_behavior.missing_payment_method, "cancel");
+    assert.match(p.custom_text.submit.message, /Hoy no se cobra nada.*3 días antes/);
     assert.equal((await db2.query("select stripe_customer_id from users where id = $1", [a.user.id])).rows[0].stripe_customer_id, "cus_1");
   });
   await t("webhook con firma falsa se rechaza", async () => {
     const r = await fetch(s.base + "/api/stripe/webhook", { method: "POST", headers: { "content-type": "application/json", "stripe-signature": "t=1,v1=abc" }, body: "{}" });
     assert.equal(r.status, 400);
   });
-  await t("checkout completado activa Pro mensual", async () => {
-    stripe.__subs.sub_1 = sub("sub_1", "active", "pro_monthly", a.user.id);
+  await t("checkout completado: Pro en prueba, con la fecha del primer cobro", async () => {
+    stripe.__subs.sub_1 = sub("sub_1", "trialing", "pro_monthly", a.user.id, { trial_end: 1794000000 });
     const r = await hook({ id: "evt_0", type: "checkout.session.completed", data: { object: { mode: "subscription", subscription: "sub_1", client_reference_id: a.user.id } } });
     assert.equal(r.status, 200);
     const x = await row(a.user.id);
-    assert.equal(x.plan, "pro"); assert.equal(x.status, "active"); assert.equal(x.interval, "month");
+    assert.equal(x.plan, "pro"); assert.equal(x.status, "trialing"); assert.equal(x.interval, "month");
     assert.equal(new Date(x.current_period_end).toISOString(), new Date(1795000000 * 1000).toISOString());
-    const e = (await api("/api/me", { token: a.token })).json.entitlement; assert.equal(e.source, "subscription"); assert.equal(e.plan, "pro");
+    const e = (await api("/api/me", { token: a.token })).json.entitlement;
+    assert.equal(e.source, "subscription"); assert.equal(e.plan, "pro"); assert.equal(e.status, "trialing");
+    assert.equal(new Date(e.trialEnd).toISOString(), new Date(1794000000 * 1000).toISOString());
+    assert.equal((await db2.query("select card_trial_used from users where id = $1", [a.user.id])).rows[0].card_trial_used, true);
+  });
+  await t("aviso 3 días antes del cobro: correo con fecha, monto y cómo cancelar", async () => {
+    const r = await hook({ id: "evt_tw", type: "customer.subscription.trial_will_end", data: { object: sub("sub_1", "trialing", "pro_monthly", a.user.id, { trial_end: 1794000000 }) } }, s2.base);
+    assert.equal(r.status, 200); assert.equal(mail2.sent.length, 1);
+    const m = mail2.sent[0];
+    assert.equal(m.to, "ana@x.mx"); assert.match(m.subject, /Tu prueba de Pro termina el/);
+    assert.match(m.text, /se cobran \$99 a tu tarjeta/); assert.match(m.text, /cancela antes.*no se cobra nada/s); assert.ok(m.text.includes("https://odontocostos.test/app/cuenta"));
+  });
+  await t("si ya canceló la prueba, no se manda el aviso", async () => {
+    await hook({ id: "evt_tw2", type: "customer.subscription.trial_will_end", data: { object: sub("sub_1", "trialing", "pro_monthly", a.user.id, { trial_end: 1794000000, cancel_at_period_end: true }) } }, s2.base);
+    assert.equal(mail2.sent.length, 1);
+    await hook({ id: "evt_tw3", type: "customer.subscription.updated", data: { object: sub("sub_1", "active", "pro_monthly", a.user.id) } });
   });
   await t("con suscripción activa no se puede pagar otra vez; el portal abre", async () => {
     assert.equal((await api("/api/checkout", { method: "POST", token: a.token, body: { plan: "plus", interval: "year" } })).status, 409);
@@ -301,6 +322,13 @@ const db2 = await testDb();
     assert.equal((await row(a.user.id)).status, "canceled");
     assert.notEqual((await api("/api/me", { token: a.token })).json.entitlement.source, "subscription");
   });
+  await t("quien ya usó la prueba paga desde el primer día", async () => {
+    const r = await api("/api/checkout", { method: "POST", token: a.token, body: { plan: "pro", interval: "month" } });
+    assert.equal(r.status, 200);
+    const [, p] = stripe.calls.filter((c) => c[0] === "checkout").at(-1);
+    assert.equal(p.subscription_data.trial_period_days, undefined); assert.equal(p.payment_method_collection, undefined);
+    assert.notEqual((await api("/api/me", { token: a.token })).json.entitlement.trialAvailable, true);
+  });
   await t("suscripción sin metadatos se liga por el cliente de Stripe", async () => {
     await db2.query("update users set stripe_customer_id = 'cus_77' where id = $1", [b.user.id]);
     await hook({ id: "evt_5", type: "customer.subscription.created", data: { object: sub("sub_9", "active", "pro_yearly", undefined, { customer: "cus_77", metadata: {} }) } });
@@ -310,7 +338,7 @@ const db2 = await testDb();
     assert.equal((await api("/api/account", { method: "DELETE", token: b.token })).status, 200);
     assert.ok(stripe.calls.some((c) => c[0] === "cancel" && c[1] === "sub_9"));
   });
-  await s.close();
+  await s.close(); await s2.close();
 }
 
 console.log(results.join("\n"));

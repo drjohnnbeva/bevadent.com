@@ -3,7 +3,7 @@ import { treatRows } from "../../lib/calc";
 import { N, money, uid } from "../../lib/format";
 import { T, type Material } from "../../lib/model";
 import { can, FREE_TREATS } from "../../lib/plans";
-import { I, Locked, Num, Seg, Title, Txt } from "../../ui/kit";
+import { cleanNum, I, Locked, Num, Seg, Title, Txt } from "../../ui/kit";
 import { useApp } from "../ctx";
 import { treatmentPath } from "../router";
 import { TreatList, TreatTable } from "./Treatlist";
@@ -65,9 +65,9 @@ function Materials() {
             {st.materials.map((m) => (
               <tr key={m.id}>
                 <td style={{ minWidth: 220 }}><div className="inp"><input className="txt" aria-label="Nombre del material" value={m.name} onChange={(e) => upd(m.id, { name: e.target.value })} /></div></td>
-                {plus && <td style={{ minWidth: 120 }}><div className="inp"><span className="affix">$</span><input aria-label={"Precio del paquete de " + m.name} type="number" step="any" inputMode="decimal" value={(m.packPrice as any) ?? ""} onChange={(e) => upd(m.id, { packPrice: e.target.value })} /></div></td>}
-                {plus && <td style={{ minWidth: 110 }}><div className="inp"><input aria-label={"Usos por paquete de " + m.name} type="number" step="any" inputMode="decimal" value={(m.packUses as any) ?? ""} onChange={(e) => upd(m.id, { packUses: e.target.value })} /><span className="affix">usos</span></div></td>}
-                <td style={{ minWidth: 120 }}><div className="inp"><span className="affix">$</span><input aria-label={"Costo por uso de " + m.name} type="number" step="any" inputMode="decimal" value={(m.cost as any) ?? ""} onChange={(e) => setCost(m, e.target.value)} /></div></td>
+                {plus && <td style={{ minWidth: 120 }}><div className="inp"><span className="affix">$</span><input aria-label={"Precio del paquete de " + m.name} type="text" inputMode="decimal" value={(m.packPrice as any) ?? ""} onChange={(e) => upd(m.id, { packPrice: cleanNum(e.target.value) })} /></div></td>}
+                {plus && <td style={{ minWidth: 110 }}><div className="inp"><input aria-label={"Usos por paquete de " + m.name} type="text" inputMode="decimal" value={(m.packUses as any) ?? ""} onChange={(e) => upd(m.id, { packUses: cleanNum(e.target.value) })} /><span className="affix">usos</span></div></td>}
+                <td style={{ minWidth: 120 }}><div className="inp"><span className="affix">$</span><input aria-label={"Costo por uso de " + m.name} type="text" inputMode="decimal" value={(m.cost as any) ?? ""} onChange={(e) => setCost(m, cleanNum(e.target.value))} /></div></td>
                 <td className="r num">{used(m.id) || "—"}</td>
                 <td className="r"><button className="btn ghost icon" aria-label={"Borrar " + m.name} onClick={() => del(m.id)}><I.trash /></button></td>
               </tr>
@@ -83,7 +83,7 @@ function Materials() {
         <div className="stack divided" key={m.id}>
           <div className="row end">
             <Txt id={"mn" + m.id} label="Material" value={m.name} onChange={(v) => upd(m.id, { name: v })} />
-            <div className="field w130"><label htmlFor={"mc" + m.id}>Costo por uso</label><div className="inp"><span className="affix">$</span><input id={"mc" + m.id} type="number" step="any" inputMode="decimal" value={(m.cost as any) ?? ""} onChange={(e) => setCost(m, e.target.value)} /></div></div>
+            <div className="field w130"><label htmlFor={"mc" + m.id}>Costo por uso</label><div className="inp"><span className="affix">$</span><input id={"mc" + m.id} type="text" inputMode="decimal" value={(m.cost as any) ?? ""} onChange={(e) => setCost(m, cleanNum(e.target.value))} /></div></div>
           </div>
           {plus && <div className="row end"><Num id={"mp" + m.id} label="Precio del paquete" value={m.packPrice} onChange={(v) => upd(m.id, { packPrice: v })} /><Num id={"mu" + m.id} prefix="" suffix="usos" label="Rinde para" value={m.packUses} onChange={(v) => upd(m.id, { packUses: v })} /></div>}
           <div className="row between">

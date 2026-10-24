@@ -1,3 +1,4 @@
+import { InstallCard, TextSizePicker } from "./Comfort";
 import { useState, type ReactNode } from "react";
 import { clinicCalc, effClinic, outcome, priceOf, quoteCalc, statusOf, treatCalc } from "../../lib/calc";
 import { readLogo, saveFile } from "../../lib/files";
@@ -5,7 +6,7 @@ import { N, fmtDate, money, round50, slug, today, uid } from "../../lib/format";
 import { isValidBackup, makeDemo, normalize, type Quote, type State } from "../../lib/model";
 import { pdfPriceList, pdfQuote, priceText, quoteText } from "../../lib/pdf";
 import { can, type PlanId } from "../../lib/plans";
-import { Back, Chips, Confirm, CopyBtn, FileBtn, I, KV, Locked, Num, Pill, Stepper, Tag, Title, Txt } from "../../ui/kit";
+import { Back, Chips, cleanNum, Confirm, CopyBtn, FileBtn, I, KV, Locked, Num, Pill, Stepper, Tag, Title, Txt } from "../../ui/kit";
 import { useApp } from "../ctx";
 import { PATH } from "../router";
 
@@ -24,12 +25,13 @@ export function More() {
   return (
     <div className="screen">
       <Title title="Herramientas" lead="Lo que usas para cobrar, compartir y cuidar tus datos." />
+      {!wide && <TextSizePicker />}
       {wide ? (
         <div className="g3">
           {TOOLS.map(({ path, label, desc, need, Icon }) => (
             <button className="tool" key={path} onClick={() => go(path)}>
               <span className="lk"><Icon /></span>
-              <span className="row between nowrap full"><b>{label}</b>{need && !can(st.plan, need) && <Tag p={need} />}</span>
+              <span className="row between nw full"><b className="wrap">{label}</b>{need && !can(st.plan, need) && <Tag p={need} />}</span>
               <span className="muted small">{desc}</span>
             </button>
           ))}
@@ -46,6 +48,8 @@ export function More() {
           </div>
         </section>
       )}
+      <InstallCard />
+      {wide && <TextSizePicker />}
     </div>
   );
 }
@@ -67,7 +71,7 @@ export function PriceList() {
   const empty = st.order.filter((id) => !(N(st.treatments[id].price) > 0)).length;
   const fill = () => set((s) => ({ ...s, treatments: Object.fromEntries(Object.entries(s.treatments).map(([k, t]) => (N(t.price) > 0 ? [k, t] : [k, { ...t, price: round50(treatCalc(t, s.materials, cc, s.clinic.target).recPrice) }]))) }));
   const rows = st.order.map((id) => { const t = st.treatments[id]; return { id, t, r: treatCalc(t, st.materials, cc, st.clinic.target) }; });
-  const input = (x: (typeof rows)[number]) => <div className="inp"><span className="affix">$</span><input aria-label={"Precio de " + x.t.name} type="number" step="any" inputMode="decimal" value={(x.t.price as any) ?? ""} onChange={(e) => ut(x.id, e.target.value)} /></div>;
+  const input = (x: (typeof rows)[number]) => <div className="inp"><span className="affix">$</span><input aria-label={"Precio de " + x.t.name} type="text" inputMode="decimal" value={(x.t.price as any) ?? ""} onChange={(e) => ut(x.id, cleanNum(e.target.value))} /></div>;
   const fillBtn = empty > 0 && <button className="btn ghost sm start" onClick={fill}>Llenar {empty} {empty > 1 ? "vacíos" : "vacío"} con el recomendado</button>;
   const hint = !st.clinic.name && (
     <div className="note stack"><span>Agrega el nombre y el logo de tu consultorio para que salgan en el PDF.</span><button className="btn sm start" onClick={() => go(PATH.profile)}>Agregar datos</button></div>
@@ -192,7 +196,7 @@ function QuoteEditor({ q, close }: { q: Quote; close: () => void }) {
             {q.items.map((it, i) => (
               <div className="stack divided" key={i}>
                 <div className="row between nowrap"><b className="wrap">{st.treatments[it.tid] ? st.treatments[it.tid].name : it.name}</b><button className="btn ghost icon" aria-label="Quitar" onClick={() => uq({ items: q.items.filter((_, j) => j !== i) })}><I.x /></button></div>
-                <div className="row"><Stepper label="piezas" value={it.qty} onChange={(v) => ui(i, { qty: v })} /><div className="inp grow"><span className="affix">$</span><input aria-label="Precio" type="number" step="any" inputMode="decimal" value={it.price as any} onChange={(e) => ui(i, { price: e.target.value })} /></div></div>
+                <div className="row"><Stepper label="piezas" value={it.qty} onChange={(v) => ui(i, { qty: v })} /><div className="inp grow"><span className="affix">$</span><input aria-label="Precio" type="text" inputMode="decimal" value={it.price as any} onChange={(e) => ui(i, { price: cleanNum(e.target.value) })} /></div></div>
               </div>
             ))}
             <div className="field"><label htmlFor="qadd">Agregar tratamiento</label><div className="inp"><select id="qadd" value="" onChange={(e) => { addItem(e.target.value); e.target.value = ""; }}>

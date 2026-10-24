@@ -14,13 +14,13 @@ const beta = await serve({ db, mailer: mail, env: { SUPPORT_EMAIL: "hola@odontoc
 const mailLink = () => { const u = new URL(mail.sent[0].text.match(/https:\/\/\S+reset=[\w-]+/)[0]); return beta.base + u.pathname + u.search; };
 let billBase = "";
 const stripe = await fakeStripe({ checkoutUrl: () => billBase + "/app/?pago=ok" });
-const bill = await serve({ db: db2, stripeClient: stripe, env: { STRIPE_WEBHOOK_SECRET: SECRET, TRIAL_DAYS: "14" } });
+const bill = await serve({ db: db2, stripeClient: stripe, env: { STRIPE_WEBHOOK_SECRET: SECRET, STRIPE_FOUNDER_COUPON: "FUNDADOR" } });
 billBase = bill.base;
 const nodb = await serve({ db: null, env: {} });
 
 const browser = await chromium.launch();
 const errors = [], results = [];
-const t = async (name, fn) => { try { await fn(); results.push("✓ " + name); } catch (e) { results.push("✗ " + name + ": " + e.message.split("\n")[0]); } };
+const t = async (name, fn) => { try { await fn(); results.push("✓ " + name); } catch (e) { results.push("✗ " + name + ": " + e.message.split("\n").slice(0, 6).join(" | ")); } };
 async function page(base, w = 1280) {
   const ctx = await browser.newContext({ viewport: { width: w, height: 900 }, acceptDownloads: true });
   const p = await ctx.newPage();
@@ -59,6 +59,27 @@ await t("crear cuenta: entra con Pro de beta y sube sus datos", async () => {
 await t("cada cambio se guarda en la nube", async () => {
   await g.click(".side-item:has-text('Consultorio')"); await g.fill("#rent", "15000");
   await until(async () => (await cloudRent()) === "15000");
+  assert.equal(await g.inputValue("#rent"), "15,000");
+});
+await t("campos de cantidad: comas al escribir y el cursor no brinca", async () => {
+  await g.fill("#serv", ""); await g.click("#serv"); await g.keyboard.type("1234567");
+  assert.equal(await g.inputValue("#serv"), "1,234,567");
+  for (let i = 0; i < 3; i++) await g.keyboard.press("ArrowLeft");
+  await g.keyboard.type("98");
+  assert.equal(await g.inputValue("#serv"), "123,498,567");
+  await g.fill("#serv", "3,500"); assert.equal(await g.inputValue("#serv"), "3,500");
+  await g.fill("#serv", "$ 3500 pesos"); assert.equal(await g.inputValue("#serv"), "3,500");
+  await g.keyboard.press("Tab");
+  await until(async () => (await db.query("select data->'clinic'->>'services' as v from clinic_states")).rows[0]?.v === "3500");
+});
+await t("tamaño de letra: se cambia y se queda al recargar", async () => {
+  await g.click(".size-mini button[aria-label='Muy grande']");
+  assert.equal(await g.evaluate(() => document.documentElement.dataset.text), "xl");
+  assert.equal(await g.evaluate(() => getComputedStyle(document.documentElement).fontSize), "22px");
+  await g.reload(); await g.waitForSelector(".app");
+  assert.equal(await g.evaluate(() => document.documentElement.dataset.text), "xl");
+  await g.click(".size-mini button[aria-label='Normal']");
+  assert.equal(await g.evaluate(() => getComputedStyle(document.documentElement).fontSize), "18px");
 });
 await t("Finanzas se abre", async () => { await g.click(".side-item:has-text('Finanzas')"); await g.waitForSelector("text=Tus números, como los ve tu contador"); });
 await t("descarga la lista de precios en PDF", async () => {
@@ -116,7 +137,7 @@ await t("teléfono: el enlace del correo deja poner contraseña nueva y trae los
   await m.waitForSelector(".toast:has-text('cambiaste tu contraseña')");
   assert.ok(!m.url().includes("reset="));
   await m.click(".tab:has-text('Consultorio')");
-  await until(async () => (await m.inputValue("#rent")) === "15000");
+  await until(async () => (await m.inputValue("#rent")) === "15,000");
 });
 await t("teléfono: el mismo enlace ya no sirve", async () => {
   await m.goto(mailLink()); await m.fill("#newpw", "muelas-2029"); await m.click("button:has-text('Guardar y entrar')");
@@ -144,23 +165,33 @@ await t("panel en el teléfono: se entra con la contraseña y se queda abierto",
 
 // ---------- Cobro activo ----------
 const b = await page(bill.base);
-await t("cobro: cuenta nueva con 14 días de prueba", async () => {
+await t("cobro: cuenta nueva sin tarjeta, en Gratis", async () => {
   await b.click(".side-plan button:has-text('Crear cuenta o entrar')");
+  await b.waitForSelector("text=no pide tarjeta");
   await b.fill("#email", "luis@dental.mx"); await b.fill("#password", "muelas-2026"); await b.click("button[type=submit]");
-  await b.waitForSelector(".side-plan .pill:has-text('Prueba')", { timeout: 8000 });
+  await b.waitForSelector(".side-plan:has-text('Plan Gratis')", { timeout: 8000 });
 });
-await t("cobro: suscribirse abre el pago y el plan se activa al volver", async () => {
+await t("cobro: la prueba de 7 días dice claro cuándo y cuánto se cobra", async () => {
   await b.click(".side-plan button:has-text('Planes')");
-  await b.waitForSelector("text=Suscribirme a Pro");
+  await b.waitForSelector(".plan.featured .btn:has-text('Probar Pro 7 días gratis')");
+  const txt = await b.textContent(".plan.featured");
+  assert.match(txt, /Hoy no se cobra nada\. Si no cancelas, el .+ se cobran \$99\. Te avisamos por correo 3 días antes\./);
+});
+await t("cobro: empezar la prueba abre el pago y el plan se activa al volver", async () => {
   const uid = (await db2.query("select id from users")).rows[0].id;
-  stripe.__subs.sub_1 = { id: "sub_1", customer: "cus_1", status: "active", cancel_at_period_end: false, metadata: { user_id: uid }, items: { data: [{ current_period_end: 1795000000, price: { lookup_key: "pro_monthly", recurring: { interval: "month" } } }] } };
+  stripe.__subs.sub_1 = { id: "sub_1", customer: "cus_1", status: "trialing", trial_end: Math.floor(Date.now() / 1000) + 7 * 86400, cancel_at_period_end: false, metadata: { user_id: uid }, items: { data: [{ current_period_end: 1795000000, price: { lookup_key: "pro_monthly", recurring: { interval: "month" } } }] } };
   await Promise.all([b.waitForURL(/pago=ok/), b.click(".plan.featured .btn")]);
+  const [, p] = stripe.calls.filter((c) => c[0] === "checkout").at(-1);
+  assert.equal(p.subscription_data.trial_period_days, 7);
   const payload = JSON.stringify({ id: "evt_1", type: "checkout.session.completed", data: { object: { mode: "subscription", subscription: "sub_1", client_reference_id: uid } } });
   await fetch(bill.base + "/api/stripe/webhook", { method: "POST", headers: { "content-type": "application/json", "stripe-signature": stripe.webhooks.generateTestHeaderString({ payload, secret: SECRET }) }, body: payload });
   await b.waitForSelector(".toast:has-text('Listo: ya tienes Pro')", { timeout: 15000 });
+  await b.waitForSelector(".side-plan .pill:has-text('Prueba')");
 });
-await t("cobro: la cuenta ofrece administrar la suscripción", async () => {
+await t("cobro: inicio y cuenta recuerdan la fecha del primer cobro y cómo cancelar", async () => {
+  await b.click(".side-item:has-text('Inicio')"); await b.waitForSelector("text=Estás probando Pro gratis");
   await b.click(".side-plan button:has-text('Cuenta')");
+  await b.waitForSelector("text=se cobra tu primer mes");
   await b.waitForSelector("button:has-text('Administrar suscripción')");
 });
 

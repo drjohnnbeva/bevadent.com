@@ -5,6 +5,7 @@ import { createServer } from "node:http";
 import { readFile, mkdir } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { chromium } from "playwright";
+import { fontRoute } from "./fonts.mjs";
 
 const root = process.argv[2] || "preview-dist";
 const out = "e2e/out";
@@ -22,20 +23,6 @@ await new Promise((r) => server.listen(0, r));
 const base = `http://127.0.0.1:${server.address().port}`;
 await mkdir(out, { recursive: true });
 
-// Fuentes: con FONT_DIR (carpetas de @fontsource) se usan las reales; si no, se omiten.
-const FONT_DIR = process.env.FONT_DIR;
-const FAMILIES = { "Red Hat Display": ["red-hat-display", [400, 500, 600, 700, 800, 900]], "Red Hat Text": ["red-hat-text", [400, 500, 600, 700]], "Red Hat Mono": ["red-hat-mono", [400, 500, 600, 700]] };
-async function fontRoute(r) {
-  const u = new URL(r.request().url());
-  if (!FONT_DIR) return r.fulfill({ status: 200, body: "", contentType: "text/css" });
-  if (u.hostname === "fonts.gstatic.com") {
-    try { return r.fulfill({ status: 200, body: await readFile(join(FONT_DIR, u.pathname.slice(1))), contentType: "font/woff2" }); } catch { return r.fulfill({ status: 404, body: "" }); }
-  }
-  let css = "";
-  for (const [fam, [id, weights]] of Object.entries(FAMILIES)) for (const w of weights)
-    css += `@font-face{font-family:"${fam}";font-weight:${w};font-display:swap;src:url(https://fonts.gstatic.com/fontsource-${id}-5.3.0/package/files/${id}-latin-${w}-normal.woff2) format("woff2")}\n`;
-  return r.fulfill({ status: 200, body: css, contentType: "text/css" });
-}
 const browser = await chromium.launch();
 const errors = [];
 async function open(w, h, { plan, dark, path = "/app/index.html", wait = ".app" } = {}) {

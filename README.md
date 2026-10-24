@@ -10,7 +10,7 @@ Tres planes:
 | Plus | $99/mes o $990/año | $49/mes |
 | Pro | $199/mes o $1,990/año | $99/mes |
 
-Al crear cuenta, cada dentista tiene 14 días de Pro sin tarjeta; después regresa a Gratis con sus datos guardados.
+Gratis no pide tarjeta. Plus y Pro se prueban 7 días registrando la tarjeta, una vez por cuenta: ese día no se cobra nada, la app muestra la fecha del primer cobro y el servidor manda un correo 3 días antes (evento `customer.subscription.trial_will_end`, necesita `SMTP_USER` y `SMTP_PASS`). Si cancela antes, no paga nada.
 
 **Beta:** mientras no estén las llaves de Stripe, el sitio corre en beta: quien crea su cuenta usa Pro gratis (60 días de prueba que siguen contando cuando empiece el cobro). Sin `DATABASE_URL` el sitio también funciona, pero sin cuentas: todos usan Pro y los datos se quedan en cada dispositivo.
 
@@ -37,10 +37,18 @@ Contraseñas con scrypt; las sesiones duran 90 días y en la base solo se guarda
 npm install
 npm run dev          # app en http://localhost:5173/app/ (vista previa, puedes cambiar de plan)
 npm run check        # tipos + pruebas de cálculo + build
-npm run e2e          # servidor y navegador con Postgres en memoria (PGlite) y recorrido visual
+npm run e2e          # servidor, navegador, iPhone/Android/computadora en 3 tamaños de letra, y recorrido visual
 ```
 
-Las capturas del recorrido quedan en `e2e/out/`.
+Las capturas del recorrido quedan en `e2e/out/` (las de cada dispositivo en `e2e/out/devices/`). Con `FONT_DIR` apuntando a las carpetas de @fontsource, las capturas usan las fuentes reales.
+
+## Pensado para leer sin lentes
+
+- Letra base de 18px y tres tamaños (Normal, Grande, Muy grande): botón **Aa** en el teléfono, **Más → Tamaño de letra**, o "Letra" en el menú de la computadora. Se guarda en cada dispositivo.
+- Texto secundario con contraste de 7.8:1, botones de 48px o más, un campo por renglón en el teléfono y cantidades con comas (142,200).
+- "Empieza aquí" en el inicio: tres pasos grandes para poner los datos propios.
+- **Más → Tenla como app**: explica cómo instalarla en iPhone (Compartir → Agregar a inicio), Android (⋮ → Instalar app) y computadora; en Chrome y Edge muestra el botón de instalar.
+- `npm run test:devices` revisa en iPhone 13, iPhone 8, iPhone SE, Pixel 7, Galaxy S8, iPad Mini, laptop y computadora que nada se salga de la pantalla, que ningún campo haga zoom en iPhone y que los botones se puedan tocar.
 
 ## Panel del dueño
 
@@ -75,7 +83,7 @@ Compra `odontocostos.com` (o el que elijas). En Render: servicio → Settings �
    STRIPE_SECRET_KEY=sk_test_... APP_URL=https://odontocostos.com npm run stripe:setup
    ```
    Imprime `STRIPE_WEBHOOK_SECRET`, `STRIPE_FOUNDER_COUPON` y `STRIPE_PORTAL_CONFIG`.
-3. Pon `STRIPE_SECRET_KEY` y esas tres variables en Render. Al reiniciar, la beta termina y empieza el cobro (cuentas nuevas: 14 días de prueba).
+3. Pon `STRIPE_SECRET_KEY` y esas tres variables en Render. Al reiniciar, la beta termina y empieza el cobro: las cuentas nuevas quedan en Gratis y pueden probar Plus o Pro 7 días con tarjeta. Los de la beta conservan sus 60 días.
 4. Settings → Branding: logo y color `#0b7a61`.
 5. Cuando todo funcione, repite el paso 2 con la llave `sk_live_...` y cambia las variables en Render.
 

@@ -27,6 +27,7 @@ export async function fakeStripe({ checkoutUrl = "https://checkout.stripe.test/s
   s.billingPortal.sessions.create = async (p) => { calls.push(["portal", p]); return { url: "https://billing.stripe.test/p" }; };
   s.subscriptions.cancel = async (id) => { calls.push(["cancel", id]); return { id, status: "canceled" }; };
   s.subscriptions.retrieve = async (id) => s.__subs[id];
+  s.invoices.createPreview = async () => ({ amount_due: 9900 });
   s.__subs = {};
   s.calls = calls;
   return s;

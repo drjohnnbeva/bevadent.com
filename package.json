@@ -14,12 +14,13 @@
     "start": "node server/index.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "e2e": "npm run build && npm run test:server && npm run test:live && npm run build:preview && npm run test:ui",
+    "e2e": "npm run build && npm run test:server && npm run test:live && npm run test:devices && npm run build:preview && npm run test:ui",
     "check": "npm run typecheck && npm run test && npm run build",
     "stripe:setup": "node scripts/stripe-setup.mjs",
     "test:server": "node e2e/server-test.mjs",
     "test:live": "node e2e/live-test.mjs",
     "test:ui": "node e2e/smoke.mjs",
+    "test:devices": "node e2e/devices.mjs",
     "images": "node scripts/make-images.mjs"
   },
   "dependencies": {

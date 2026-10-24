@@ -25,6 +25,11 @@ if (env.SMTP_USER && env.SMTP_PASS) {
   transport.verify().then(() => console.log("Correo listo"), (e) => console.error("El correo no conecta:", e.message));
 }
 
-const app = createApp({ db, env, mailer });
+// Cálculos de la app compilados para el servidor (npm run build): para el resumen mensual por correo.
+let report = null;
+try { report = await import("../build/report.mjs"); } catch { console.warn("Sin build/report.mjs: no hay resumen mensual. Corre npm run build."); }
+
+const app = createApp({ db, env, mailer, report });
+if (db && mailer && report && env.MONTHLY_EMAIL !== "0") app.startMonthly();
 const billing = !!(db && env.STRIPE_SECRET_KEY && env.STRIPE_WEBHOOK_SECRET);
 app.listen(PORT, () => console.log(`OdontoCostos escuchando en ${PORT} (cuentas: ${db ? "sí" : "no"}, correo: ${mailer ? "sí" : "no"}, cobro: ${billing ? "sí" : "beta gratis"})`));

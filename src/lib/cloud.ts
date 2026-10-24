@@ -33,7 +33,7 @@ export interface Entitlement {
   /** Días de esa prueba: 30 si lo invitó un colega */
   trialDays?: number;
 }
-export interface User { id: string; email: string }
+export interface User { id: string; email: string; monthlyEmail?: boolean }
 export interface Session { user: User }
 export const FREE_ENT: Entitlement = { plan: "free", source: "free" };
 
@@ -115,6 +115,7 @@ export async function fetchMe() {
   return { session: { user: me.user }, ent: me.entitlement };
 }
 export const changePassword = (current: string, next: string) => api("/api/account/password", "POST", { current, next });
+export const setPrefs = (p: { monthlyEmail: boolean }) => api("/api/account/prefs", "POST", p);
 export async function deleteAccount() {
   await api("/api/account", "DELETE");
   token.del();

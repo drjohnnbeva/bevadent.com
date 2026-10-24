@@ -5,7 +5,7 @@ import type { MonthRecord } from "../../lib/model";
 import { pdfMonth } from "../../lib/pdf";
 import { can, PLANS } from "../../lib/plans";
 import { REGIME, resicoRate } from "../../lib/tax";
-import { Chips, cleanNum, FileBtn, I, KV, Legend, Money, Num, Peek, Seg, StackBar, Stepper, Title, Txt, WhatsAppBtn } from "../../ui/kit";
+import { Chips, FileBtn, I, KV, Legend, Money, Num, NumInput, Peek, Seg, StackBar, Stepper, Title, Txt, WhatsAppBtn } from "../../ui/kit";
 import { useApp } from "../ctx";
 import { parts100 } from "../parts";
 import { PATH } from "../router";
@@ -137,7 +137,7 @@ function Month({ mk, setMk }: MP) {
             ))}
             <div className="row end">
               <Txt id="exn" label="Concepto" placeholder="Ej. Reparación del compresor" value={nm} onChange={setNm} />
-              <div className="field w120"><label htmlFor="exa">Monto</label><div className="inp"><span className="affix">$</span><input id="exa" type="text" inputMode="decimal" value={na} onChange={(e) => setNa(cleanNum(e.target.value))} /></div></div>
+              <div className="field w120"><label htmlFor="exa">Monto</label><div className="inp"><span className="affix">$</span><NumInput id="exa" value={na} onChange={(v) => setNa(v)} /></div></div>
               <button className="btn sm" onClick={addExtra}>Agregar</button>
             </div>
           </section>

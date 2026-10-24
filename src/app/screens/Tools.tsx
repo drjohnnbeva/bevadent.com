@@ -6,7 +6,7 @@ import { N, fmtDate, money, round50, slug, today, uid } from "../../lib/format";
 import { isValidBackup, makeDemo, normalize, type Quote, type State } from "../../lib/model";
 import { pdfPriceList, pdfQuote, priceText, quoteText } from "../../lib/pdf";
 import { can, type PlanId } from "../../lib/plans";
-import { Back, Chips, cleanNum, Confirm, CopyBtn, FileBtn, I, KV, Locked, Num, Pill, Stepper, SupportWa, Tag, Title, Txt, WhatsAppBtn } from "../../ui/kit";
+import { Back, Chips, Confirm, CopyBtn, FileBtn, I, KV, Locked, Num, NumInput, Pill, Stepper, SupportWa, Tag, Title, Txt, WhatsAppBtn } from "../../ui/kit";
 import { useApp } from "../ctx";
 import { PATH } from "../router";
 
@@ -86,7 +86,7 @@ export function PriceList() {
   const empty = st.order.filter((id) => !(N(st.treatments[id].price) > 0)).length;
   const fill = () => set((s) => ({ ...s, treatments: Object.fromEntries(Object.entries(s.treatments).map(([k, t]) => (N(t.price) > 0 ? [k, t] : [k, { ...t, price: round50(treatCalc(t, s.materials, cc, s.clinic.target).recPrice) }]))) }));
   const rows = st.order.map((id) => { const t = st.treatments[id]; return { id, t, r: treatCalc(t, st.materials, cc, st.clinic.target) }; });
-  const input = (x: (typeof rows)[number]) => <div className="inp"><span className="affix">$</span><input aria-label={"Precio de " + x.t.name} type="text" inputMode="decimal" value={(x.t.price as any) ?? ""} onChange={(e) => ut(x.id, cleanNum(e.target.value))} /></div>;
+  const input = (x: (typeof rows)[number]) => <div className="inp"><span className="affix">$</span><NumInput aria-label={"Precio de " + x.t.name} value={(x.t.price as any) ?? ""} onChange={(v) => ut(x.id, v)} /></div>;
   const fillBtn = empty > 0 && <button className="btn ghost sm start" onClick={fill}>Llenar {empty} {empty > 1 ? "vacíos" : "vacío"} con el recomendado</button>;
   const hint = !st.clinic.name && (
     <div className="note stack"><span>Agrega el nombre y el logo de tu consultorio para que salgan en el PDF.</span><button className="btn sm start" onClick={() => go(PATH.profile)}>Agregar datos</button></div>
@@ -213,7 +213,7 @@ function QuoteEditor({ q, close }: { q: Quote; close: () => void }) {
             {q.items.map((it, i) => (
               <div className="stack divided" key={i}>
                 <div className="row between nowrap"><b className="wrap">{st.treatments[it.tid] ? st.treatments[it.tid].name : it.name}</b><button className="btn ghost icon" aria-label="Quitar" onClick={() => uq({ items: q.items.filter((_, j) => j !== i) })}><I.x /></button></div>
-                <div className="row"><Stepper label="piezas" value={it.qty} onChange={(v) => ui(i, { qty: v })} /><div className="inp grow"><span className="affix">$</span><input aria-label="Precio" type="text" inputMode="decimal" value={it.price as any} onChange={(e) => ui(i, { price: cleanNum(e.target.value) })} /></div></div>
+                <div className="row"><Stepper label="piezas" value={it.qty} onChange={(v) => ui(i, { qty: v })} /><div className="inp grow"><span className="affix">$</span><NumInput aria-label="Precio" value={it.price} onChange={(v) => ui(i, { price: v })} /></div></div>
               </div>
             ))}
             <div className="field"><label htmlFor="qadd">Agregar tratamiento</label><div className="inp"><select id="qadd" value="" onChange={(e) => { addItem(e.target.value); e.target.value = ""; }}>

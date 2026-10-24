@@ -94,6 +94,14 @@ Compra `odontocostos.com` (o el que elijas). En Render: servicio → Settings �
 - [ ] Con tu contador: alta de la actividad de servicios digitales en tu RFC, IVA de 16% de la suscripción y cómo vas a emitir las facturas.
 - [ ] Prueba una compra completa en modo de prueba con la tarjeta `4242 4242 4242 4242`: el plan debe activarse solo en unos segundos, y cancelar desde Administrar suscripción debe regresarte a Gratis al final del periodo.
 
+## Lo que trae para crecer
+
+- **Mandar por WhatsApp** la lista de precios, los presupuestos (con el WhatsApp del paciente abre su chat) y el reporte del mes al contador. En el teléfono comparte el PDF; en la computadora abre WhatsApp Web con el texto.
+- **Plantillas por especialidad** (Tratamientos → Cargar tratamientos de mi especialidad): general, ortodoncia, endodoncia, odontopediatría, periodoncia, prótesis e implantes y estética, con minutos y materiales de referencia (`src/lib/templates.ts`).
+- **Invita a un colega**: cada cuenta tiene su enlace `/?ref=CÓDIGO`. El invitado prueba Plus o Pro 30 días (`REFERRAL_TRIAL_DAYS`). Cuando paga su primer cobro (evento `invoice.paid`), quien invitó gana un mes: crédito en Stripe o 30 días de Pro.
+- **Soporte por WhatsApp**: pon tu número en `SUPPORT_WHATSAPP` (10 dígitos) y aparece el botón en Cuenta, recuperar contraseña, Más y la burbuja de la página de venta.
+- **Resumen mensual por correo**: del 1 al 5 de cada mes (9 a 20 h de la Ciudad de México) a quien ya puso sus datos: cuánto cobró y cuánto le quedó, o un recordatorio para capturar. Una vez por mes, con enlace para darse de baja. Necesita `SMTP_USER` y `SMTP_PASS`; `MONTHLY_PER_HOUR` (40) cuida el límite de Gmail y `MONTHLY_EMAIL=0` lo apaga. Usa los mismos cálculos que la app, compilados en `build/report.mjs` por `npm run build`.
+
 ## Lo que sigue
 
 1. **Leer los XML del SAT**: llenar ingresos y gastos del mes solo, sin capturar.

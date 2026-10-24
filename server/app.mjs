@@ -59,7 +59,35 @@ function resetMail(link) {
   return { subject: "Cambia tu contraseña de OdontoCostos", text, html };
 }
 
-export function createApp({ db, env = process.env, dist = join(HERE, "..", "dist"), stripeClient, mailer = null } = {}) {
+/** Correo del resumen mensual. sm: resultado de monthSummary (src/lib/report.ts). */
+function monthlyMail(sm, plan, appUrl, unsub) {
+  const cap = (x) => x.charAt(0).toUpperCase() + x.slice(1);
+  const hi = sm.doctor ? `Hola, ${sm.doctor}:` : "Hola:";
+  let subject, lines, cta, url;
+  if (plan === "pro" && sm.has) {
+    subject = `${cap(sm.month)} en tu consultorio: te quedaron ${sm.netText}`;
+    lines = [`En ${sm.month} cobraste ${sm.ingText} en ${sm.count} ${sm.count === 1 ? "tratamiento" : "tratamientos"}.`,
+      `Después de gastos e impuestos estimados te quedaron libres ${sm.netText}: de cada $100 que cobraste te quedaron $${sm.per100}.`];
+    cta = "Ver el detalle del mes"; url = `${appUrl}/app/finanzas`;
+  } else if (plan === "pro") {
+    subject = `¿Cómo te fue en ${sm.month}?`;
+    lines = [`Todavía no capturas lo que atendiste en ${sm.month}. Toma 3 minutos: anota cuántos tratamientos hiciste y te decimos cuánto te quedó libre, ya con impuestos.`];
+    cta = `Capturar ${sm.month}`; url = `${appUrl}/app/finanzas`;
+  } else {
+    subject = `Tu consultorio en ${sm.month}`;
+    lines = [`Cada hora con paciente te cuesta ${sm.perHour}. Revisa que tus precios la cubran.`,
+      "Con Pro capturas lo que atiendes cada mes y te decimos cuánto te quedó libre después de gastos e impuestos."];
+    cta = "Revisar mis precios"; url = `${appUrl}/app/tratamientos`;
+  }
+  const text = [hi, "", ...lines, "", `${cta}: ${url}`, "", "OdontoCostos", "", `¿Ya no quieres este resumen? Date de baja aquí: ${unsub}`].join("\n");
+  const html = `<div style="font:16px/1.55 system-ui,sans-serif;color:#10201b;max-width:520px;margin:0 auto;padding:24px">
+<p style="font-weight:800;font-size:20px;margin:0 0 18px">OdontoCostos</p><p>${esc(hi)}</p>${lines.map((l) => `<p>${esc(l)}</p>`).join("")}
+<p style="margin:24px 0"><a href="${esc(url)}" style="background:#0b7a61;color:#fff;text-decoration:none;font-weight:700;padding:12px 20px;border-radius:12px;display:inline-block">${esc(cta)}</a></p>
+<p style="color:#4a5b55;font-size:13px;margin-top:32px">¿Ya no quieres este resumen? <a href="${esc(unsub)}" style="color:#4a5b55">Date de baja</a>.</p></div>`;
+  return { subject, text, html };
+}
+
+export function createApp({ db, env = process.env, dist = join(HERE, "..", "dist"), stripeClient, mailer = null, report = null } = {}) {
   const APP_URL = (env.APP_URL || "http://localhost:3000").replace(/\/$/, "");
   const stripe = stripeClient || (env.STRIPE_SECRET_KEY ? new Stripe(env.STRIPE_SECRET_KEY) : null);
   const accounts = !!db, email = accounts && !!mailer;
@@ -97,7 +125,7 @@ export function createApp({ db, env = process.env, dist = join(HERE, "..", "dist
     if (new Date(u.trial_ends_at).getTime() > Date.now()) return { plan: "pro", source: "trial", trialEndsAt: u.trial_ends_at, status: sub?.status, ...offer };
     return { plan: "free", source: "free", trialEndsAt: u.trial_ends_at, status: sub?.status, ...offer };
   }
-  const publicUser = (u) => ({ id: u.id, email: u.email });
+  const publicUser = (u) => ({ id: u.id, email: u.email, monthlyEmail: u.monthly_email !== false });
   // A quien llegó invitado por un colega, la prueba con tarjeta le dura un mes.
   const trialDaysFor = async (u) => ((await one("select 1 from referrals where referred_id = $1", [u.id])) ? referralDays : cardTrialDays);
 
@@ -336,6 +364,21 @@ export function createApp({ db, env = process.env, dist = join(HERE, "..", "dist
   });
 
   // ---------- Datos del consultorio ----------
+  app.post("/api/account/prefs", async (req, res) => {
+    const u = await currentUser(req);
+    if (typeof req.body?.monthlyEmail === "boolean") await q("update users set monthly_email = $1 where id = $2", [req.body.monthlyEmail, u.id]);
+    res.json({ ok: true });
+  });
+  // Darse de baja del resumen mensual con el enlace del correo (también por POST, para el botón del correo).
+  const unsubPage = (ok) => `<!doctype html><html lang="es-MX"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>OdontoCostos</title><body style="font:18px/1.5 system-ui,sans-serif;color:#10201b;background:#f3f6f3;margin:0;padding:48px 20px"><main style="max-width:520px;margin:0 auto;background:#fff;border:1px solid #d9e2dd;border-radius:18px;padding:24px"><h1 style="font-size:24px;margin:0 0 12px">${ok ? "Listo: ya no te mandamos el resumen mensual" : "Este enlace ya no sirve"}</h1><p>${ok ? "Puedes volver a activarlo cuando quieras en Cuenta." : "Puedes apagar el resumen desde Cuenta en la app."}</p><p><a href="/app/cuenta" style="color:#075a46;font-weight:700">Abrir OdontoCostos</a></p></main></body></html>`;
+  const unsubscribe = async (req, res) => {
+    const t = String(req.query.t || "");
+    const ok = /^[0-9a-f-]{36}$/i.test(t) && !!(await one("update users set monthly_email = false where email_token = $1 returning id", [t]));
+    res.set("cache-control", "no-store").type("html").send(unsubPage(ok));
+  };
+  app.get("/api/email/unsubscribe", unsubscribe);
+  app.post("/api/email/unsubscribe", unsubscribe);
+
   app.get("/api/referral", async (req, res) => {
     const u = await currentUser(req);
     const code = await refCode(u);
@@ -413,6 +456,38 @@ export function createApp({ db, env = process.env, dist = join(HERE, "..", "dist
     res.json({ url: s.url });
   });
   app.use("/api", (_req, res) => res.status(404).json({ error: "No existe" }));
+
+  // ---------- Resumen del mes por correo ----------
+  // Del 1 al 5 de cada mes, de 9 a 20 h de la Ciudad de México, a quien ya puso sus datos (no el ejemplo). Una vez por mes.
+  const perHour = Number(env.MONTHLY_PER_HOUR || 40); // Gmail deja unos 500 correos al día
+  const mxNow = (d) => Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: "America/Mexico_City", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hourCycle: "h23" }).formatToParts(d).map((p) => [p.type, p.value]));
+  async function runMonthly(now = new Date()) {
+    if (!db || !mailer || !report) return 0;
+    const t = mxNow(now), hour = Number(t.hour);
+    if (Number(t.day) > 5 || hour < 9 || hour >= 20) return 0;
+    const y = Number(t.year), m = Number(t.month), key = m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, "0")}`;
+    const rows = await q(`select u.*, c.data from users u join clinic_states c on c.user_id = u.id
+      where u.monthly_email and (c.data->>'edited')::boolean is true
+        and not exists (select 1 from monthly_emails e where e.user_id = u.id and e.month = $1)
+      order by u.created_at limit $2`, [key, perHour]);
+    let sent = 0;
+    for (const u of rows) {
+      // Se aparta antes de mandar para no repetir; si el correo falla, se suelta y se intenta la siguiente hora.
+      if (!(await one("insert into monthly_emails (user_id, month) values ($1, $2) on conflict do nothing returning user_id", [u.id, key]))) continue;
+      const plan = (await entitlement(u)).plan, sm = report.monthSummary(u.data, key, plan);
+      const unsub = `${APP_URL}/api/email/unsubscribe?t=${u.email_token}`;
+      try {
+        await mailer.send({ to: u.email, ...monthlyMail(sm, plan, APP_URL, unsub), list: { unsubscribe: { url: unsub, comment: "Dejar de recibir el resumen" } }, headers: { "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" } });
+        sent++;
+      } catch (e) {
+        console.error("Resumen mensual", e.message);
+        await q("delete from monthly_emails where user_id = $1 and month = $2", [u.id, key]);
+      }
+    }
+    return sent;
+  }
+  app.runMonthly = runMonthly;
+  app.startMonthly = () => { const tick = () => runMonthly().catch((e) => console.error("Resumen mensual", e)); setTimeout(tick, 60_000); return setInterval(tick, 60 * 60_000); };
 
   // ---------- Panel del dueño ----------
   // Se entra con ADMIN_PASSWORD en un formulario (sirve en cualquier navegador, también en el teléfono).

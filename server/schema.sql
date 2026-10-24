@@ -63,3 +63,12 @@ create table if not exists referrals (
   rewarded_at timestamptz
 );
 create index if not exists referrals_referrer_idx on referrals(referrer_id);
+-- Resumen mensual por correo: se puede apagar; cada mes se manda una sola vez.
+alter table users add column if not exists monthly_email boolean not null default true;
+alter table users add column if not exists email_token uuid not null default gen_random_uuid();
+create table if not exists monthly_emails (
+  user_id uuid not null references users(id) on delete cascade,
+  month text not null,
+  sent_at timestamptz not null default now(),
+  primary key (user_id, month)
+);

@@ -382,5 +382,69 @@ const db2 = await testDb();
   await s.close(); await s2.close();
 }
 
+// ---------- Resumen mensual por correo ----------
+{
+  const report = await import("../build/report.mjs");
+  const db3 = await testDb();
+  let fail = 0;
+  const mail3 = { sent: [], send: async (m) => { if (fail > 0) { fail--; throw new Error("SMTP caído"); } mail3.sent.push(m); } };
+  const s = await serve({ db: db3, mailer: mail3, report, env: { APP_URL: "https://odontocostos.test" } }), api = client(s.base);
+  const nov = new Date("2026-11-02T16:00:00Z"); // 2 de noviembre, 10 de la mañana en la Ciudad de México
+  const user = async (email, data) => {
+    const r = (await api("/api/auth/signup", { method: "POST", body: { email, password: "muelas-2026" } })).json;
+    if (data) assert.equal((await api("/api/state", { method: "PUT", token: r.token, body: { data } })).status, 200);
+    return r;
+  };
+  const demo = report.demoState(new Date("2026-11-15T12:00:00Z"));
+  const ana = await user("ana@x.mx", { ...demo, clinic: { ...demo.clinic, doctor: "Dra. Ana López" } });
+  await user("beto@x.mx", { ...demo, edited: false });
+  await user("carla@x.mx");
+  const dani = await user("dani@x.mx", demo);
+  await t("mensual: se puede apagar desde la cuenta", async () => {
+    assert.equal((await api("/api/me", { token: dani.token })).json.user.monthlyEmail, true);
+    assert.equal((await api("/api/account/prefs", { method: "POST", token: dani.token, body: { monthlyEmail: false } })).status, 200);
+    assert.equal((await api("/api/me", { token: dani.token })).json.user.monthlyEmail, false);
+  });
+  await t("mensual: fuera del 1 al 5 o de noche no se manda nada", async () => {
+    assert.equal(await s.app.runMonthly(new Date("2026-11-10T16:00:00Z")), 0);
+    assert.equal(await s.app.runMonthly(new Date("2026-11-02T03:00:00Z")), 0);
+    assert.equal(mail3.sent.length, 0);
+  });
+  await t("mensual: si el correo falla se intenta la siguiente hora", async () => {
+    fail = 1;
+    assert.equal(await s.app.runMonthly(nov), 0);
+    assert.equal((await db3.query("select count(*)::int n from monthly_emails")).rows[0].n, 0);
+  });
+  await t("mensual: el resumen de octubre dice cuánto cobró y cuánto le quedó", async () => {
+    assert.equal(await s.app.runMonthly(nov), 1);
+    const m = mail3.sent[0];
+    assert.equal(m.to, "ana@x.mx");
+    assert.match(m.subject, /^Octubre en tu consultorio: te quedaron \$[\d,]+$/);
+    assert.match(m.text, /^Hola, Dra\. Ana López:/); assert.match(m.text, /En octubre cobraste \$[\d,]+ en \d+ tratamientos\./);
+    assert.match(m.text, /de cada \$100 que cobraste te quedaron \$\d+/);
+    assert.match(m.list.unsubscribe.url, /^https:\/\/odontocostos\.test\/api\/email\/unsubscribe\?t=[0-9a-f-]{36}$/);
+    assert.ok(m.html.includes("Date de baja"));
+  });
+  await t("mensual: no se repite, ni a quien sigue con el ejemplo o sin datos", async () => {
+    assert.equal(await s.app.runMonthly(nov), 0);
+    assert.equal(await s.app.runMonthly(new Date("2026-11-04T20:00:00Z")), 0);
+    assert.equal(mail3.sent.length, 1);
+  });
+  await t("mensual: el enlace del correo da de baja", async () => {
+    const url = new URL(mail3.sent[0].list.unsubscribe.url);
+    const r = await api(url.pathname + url.search);
+    assert.equal(r.status, 200); assert.match(r.text, /ya no te mandamos el resumen/);
+    assert.equal((await api("/api/me", { token: ana.token })).json.user.monthlyEmail, false);
+    assert.match((await api("/api/email/unsubscribe?t=nada")).text, /ya no sirve/);
+  });
+  await t("mensual: en enero llega el de diciembre; sin capturas, pide capturar", async () => {
+    await user("eva@x.mx", demo);
+    assert.equal(await s.app.runMonthly(new Date("2027-01-03T16:00:00Z")), 1);
+    const m = mail3.sent.at(-1);
+    assert.equal(m.to, "eva@x.mx"); assert.equal(m.subject, "¿Cómo te fue en diciembre?"); assert.match(m.text, /Capturar diciembre: https:\/\/odontocostos\.test\/app\/finanzas/);
+  });
+  await s.close();
+}
+
 console.log(results.join("\n"));
 process.exit(results.some((r) => r.startsWith("✗")) ? 1 : 0);

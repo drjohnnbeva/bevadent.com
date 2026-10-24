@@ -12,7 +12,7 @@ export async function testDb() {
 export async function serve(opts) {
   const app = createApp(opts);
   const srv = await new Promise((r) => { const s = app.listen(0, "127.0.0.1", () => r(s)); });
-  return { base: `http://127.0.0.1:${srv.address().port}`, close: () => new Promise((r) => srv.close(r)) };
+  return { app, base: `http://127.0.0.1:${srv.address().port}`, close: () => new Promise((r) => srv.close(r)) };
 }
 
 /** Stripe de mentiras: firma webhooks de verdad y registra lo que el servidor le pide. */

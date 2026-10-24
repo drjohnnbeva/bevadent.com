@@ -9,7 +9,8 @@
   },
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && npm run build:server",
+    "build:server": "esbuild src/lib/report.ts --bundle --platform=node --format=esm --target=node20 --outfile=build/report.mjs --log-level=warning",
     "build:preview": "vite build --mode preview --outDir preview-dist",
     "start": "node server/index.mjs",
     "typecheck": "tsc --noEmit",
@@ -36,6 +37,7 @@
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "@vitejs/plugin-react": "^5.0.0",
+    "esbuild": "0.28.2",
     "jspdf": "^3.0.4",
     "playwright": "1.63.0",
     "react": "^19.1.0",

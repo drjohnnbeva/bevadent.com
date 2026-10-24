@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { changePassword, deleteAccount, fetchReferral, invitedBy, lastEmail, openPortal, requestReset, resetPassword, sendSupport, signIn, signOut, signUp, type Referral } from "../../lib/cloud";
+import { changePassword, deleteAccount, fetchReferral, invitedBy, lastEmail, openPortal, requestReset, resetPassword, sendSupport, setPrefs, signIn, signOut, signUp, type Referral } from "../../lib/cloud";
 import { fmtDate } from "../../lib/format";
 import { PLANS, TRIAL_DAYS } from "../../lib/plans";
 import { Back, Confirm, CopyBtn, I, Seg, SupportWa, Tag, Title, Txt, WhatsAppBtn } from "../../ui/kit";
@@ -71,6 +71,7 @@ export function Account() {
             <p className="small">{cloud.sync === "error" ? "No pudimos guardar en la nube. Tus cambios siguen en este dispositivo y se suben cuando vuelva la conexión." : "Se guardan en tu cuenta cada vez que cambias algo."}</p>
             <button className="btn ghost sm start" onClick={() => go(PATH.backup)}><I.save />Descargar un respaldo</button>
           </section>
+          {cloud.cfg.email && <MonthlyPref />}
           <Invite />
         </div>
         <div className="col">
@@ -285,7 +286,7 @@ function Invite() {
   const msg = r ? "Te recomiendo OdontoCostos: te dice cuánto te cuesta cada tratamiento, cuánto cobrar y cuánto te queda. Con mi enlace tu primer mes es gratis: " + r.link : "";
   return (
     <section className="panel invite" id="invitar">
-      <div className="row gap8"><I.user /><h3>Invita a un colega: un mes gratis para los dos</h3></div>
+      <div className="row gap8 nw"><I.user /><h3>Invita a un colega: un mes gratis para los dos</h3></div>
       <p className="small">Tu colega tiene su primer mes de Plus o Pro gratis. Cuando empiece a pagar, tú también ganas un mes{cloud.ent.source === "subscription" ? ": se descuenta solo de tu próximo cobro" : ""}.</p>
       {r ? (
         <>
@@ -298,6 +299,24 @@ function Invite() {
           {cloud.cfg?.beta && <p className="muted small">Durante la beta todos usan Pro gratis; el mes se gana cuando tu colega empiece a pagar.</p>}
         </>
       ) : <p className="muted small">Cargando tu enlace…</p>}
+    </section>
+  );
+}
+
+/** Resumen del mes por correo: del 1 al 5 de cada mes, cuánto cobró y cuánto le quedó. */
+function MonthlyPref() {
+  const { cloud, toast } = useApp();
+  const [on, setOn] = useState(cloud.session?.user.monthlyEmail !== false), [busy, setBusy] = useState(false);
+  const change = async (v: boolean) => {
+    setBusy(true);
+    try { await setPrefs({ monthlyEmail: v }); setOn(v); if (cloud.session) cloud.session.user.monthlyEmail = v; toast(v ? "Te mandaremos el resumen cada mes" : "Ya no te mandaremos el resumen"); }
+    catch (e: any) { toast(e.message); }
+    setBusy(false);
+  };
+  return (
+    <section className="panel">
+      <div className="row gap8"><I.mail /><h3>Resumen de cada mes</h3></div>
+      <label className="check"><input type="checkbox" checked={on} disabled={busy} onChange={(e) => change(e.target.checked)} />Mandarme por correo, del 1 al 5 de cada mes, cuánto cobré y cuánto me quedó</label>
     </section>
   );
 }

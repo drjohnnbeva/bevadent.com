@@ -56,7 +56,7 @@ await step(m, "pro finanzas", async () => { await m.click(".tab:has-text('Finanz
 await step(m, "pro precio", async () => { await m.click(".tab:has-text('Tratamientos')"); await m.click(".lrow >> nth=1"); await m.click(".seg button:has-text('Cuánto cobrar')"); await m.waitForTimeout(500); await shot(m, "m-pro-price"); await overflow(m, "m-price"); });
 await step(m, "lista de precios", async () => {
   await m.click(".tab:has-text('Más')"); await m.click(".lrow:has-text('Lista de precios')");
-  await m.waitForSelector("button:has-text('Copiar para WhatsApp')");
+  await m.waitForSelector("button:has-text('Mandar por WhatsApp')");
   await shot(m, "m-pro-prices");
 });
 

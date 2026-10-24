@@ -81,12 +81,10 @@ export const groupNum = (v: string) => {
   const m = /^(-?)(\d+)(\.\d*)?$/.exec(v);
   return m ? m[1] + m[2].replace(/\B(?=(\d{3})+(?!\d))/g, ",") + (m[3] || "") : v;
 };
-// Campo de texto con teclado numérico (no type="number": en la computadora la rueda del mouse cambiaba la cifra sin querer).
-// Las comas se quedan mientras escribe; el cursor se acomoda para que no brinque al final.
-export function Num(p: { id: string; label: string; hint?: ReactNode; value: unknown; onChange: (v: string) => void; prefix?: string; suffix?: string; disabled?: boolean; step?: string }) {
-  const prefix = p.prefix ?? "$";
+/** Campo de cantidad: teclado numérico, comas mientras escribe y el cursor no brinca al final. */
+export function NumInput({ value, onChange, id, disabled, ...aria }: { value: unknown; onChange: (v: string) => void; id?: string; disabled?: boolean; "aria-label"?: string }) {
   const ref = useRef<HTMLInputElement>(null), caretDigits = useRef<number | null>(null);
-  const raw = p.value === null || p.value === undefined ? "" : String(p.value);
+  const raw = value === null || value === undefined ? "" : String(value);
   // Después de cada cambio, el cursor vuelve a quedar detrás de la misma cifra.
   useLayoutEffect(() => {
     const box = ref.current, before = caretDigits.current;
@@ -99,14 +97,19 @@ export function Num(p: { id: string; label: string; hint?: ReactNode; value: unk
   const change = (e: React.ChangeEvent<HTMLInputElement>) => {
     const el = e.target, caret = el.selectionStart ?? el.value.length;
     caretDigits.current = cleanNum(el.value.slice(0, caret)).length;
-    p.onChange(cleanNum(el.value));
+    onChange(cleanNum(el.value));
   };
+  return <input ref={ref} id={id} {...aria} inputMode="decimal" type="text" autoComplete="off" enterKeyHint="done" value={groupNum(raw)} disabled={disabled} onChange={change} />;
+}
+// Campo de texto con teclado numérico (no type="number": en la computadora la rueda del mouse cambiaba la cifra sin querer).
+export function Num(p: { id: string; label: string; hint?: ReactNode; value: unknown; onChange: (v: string) => void; prefix?: string; suffix?: string; disabled?: boolean; step?: string }) {
+  const prefix = p.prefix ?? "$";
   return (
     <div className="field">
       <label htmlFor={p.id}>{p.label}</label>
       <div className="inp">
         {prefix && <span className="affix">{prefix}</span>}
-        <input ref={ref} id={p.id} inputMode="decimal" type="text" autoComplete="off" enterKeyHint="done" value={groupNum(raw)} disabled={p.disabled} onChange={change} />
+        <NumInput id={p.id} value={p.value} disabled={p.disabled} onChange={p.onChange} />
         {p.suffix && <span className="affix">{p.suffix}</span>}
       </div>
       {p.hint && <small>{p.hint}</small>}

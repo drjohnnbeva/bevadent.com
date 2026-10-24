@@ -3,7 +3,7 @@ import { clinicCalc, effClinic, outcome, statusOf, treatCalc, type ClinicCalc, t
 import { N, money, pct, round50, uid } from "../../lib/format";
 import type { Treatment as TreatmentT } from "../../lib/model";
 import { can } from "../../lib/plans";
-import { Back, Chips, cleanNum, Confirm, I, KV, Locked, Money, Num, Peek, Pill, Seg, Tag } from "../../ui/kit";
+import { Back, Chips, Confirm, I, KV, Locked, Money, Num, NumInput, Peek, Pill, Seg, Tag } from "../../ui/kit";
 import { useApp } from "../ctx";
 import { PATH } from "../router";
 
@@ -77,7 +77,7 @@ function CostView({ t, r, cc, ut, id }: P) {
           return (
             <div className="mat" key={mid}>
               <span className="name">{m.name}<br /><small className="muted num">{money(N(m.cost))} cada uno</small></span>
-              <div className="inp qty"><input aria-label={"Cantidad de " + m.name} type="text" inputMode="decimal" value={q as any} onChange={(e) => { const it = [...t.items]; it[i] = [mid, cleanNum(e.target.value)]; setItems(it); }} /></div>
+              <div className="inp qty"><NumInput aria-label={"Cantidad de " + m.name} value={q as any} onChange={(v) => { const it = [...t.items]; it[i] = [mid, v]; setItems(it); }} /></div>
               <button className="btn ghost icon" aria-label={"Quitar " + m.name} onClick={() => setItems(t.items.filter((_, j) => j !== i))}><I.x /></button>
             </div>
           );
@@ -94,7 +94,7 @@ function CostView({ t, r, cc, ut, id }: P) {
         )}
         <div className="row end">
           <div className="field"><label htmlFor="nm">Material nuevo</label><div className="inp"><input id="nm" className="txt" placeholder="Ej. Ionómero" value={nm} onChange={(e) => setNm(e.target.value)} /></div></div>
-          <div className="field w110"><label htmlFor="nc">Costo por uso</label><div className="inp"><span className="affix">$</span><input id="nc" type="text" inputMode="decimal" value={nc} onChange={(e) => setNc(cleanNum(e.target.value))} /></div></div>
+          <div className="field w110"><label htmlFor="nc">Costo por uso</label><div className="inp"><span className="affix">$</span><NumInput id="nc" value={nc} onChange={(v) => setNc(v)} /></div></div>
           <button className="btn sm" onClick={addMat}>Guardar</button>
         </div>
         <small className="muted">Lo que guardas aquí queda en tu lista de materiales para otros tratamientos.</small>

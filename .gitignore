@@ -1,6 +1,8 @@
 node_modules/
 dist/
+build/
 preview-dist/
+build/
 .env.local
 .env.*.local
 *.log

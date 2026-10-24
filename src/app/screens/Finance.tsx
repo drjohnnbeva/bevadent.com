@@ -5,7 +5,7 @@ import type { MonthRecord } from "../../lib/model";
 import { pdfMonth } from "../../lib/pdf";
 import { can, PLANS } from "../../lib/plans";
 import { REGIME, resicoRate } from "../../lib/tax";
-import { Chips, cleanNum, FileBtn, I, KV, Legend, Money, Num, Peek, Seg, StackBar, Stepper, Title, Txt } from "../../ui/kit";
+import { Chips, cleanNum, FileBtn, I, KV, Legend, Money, Num, Peek, Seg, StackBar, Stepper, Title, Txt, WhatsAppBtn } from "../../ui/kit";
 import { useApp } from "../ctx";
 import { parts100 } from "../parts";
 import { PATH } from "../router";
@@ -182,7 +182,8 @@ function Month({ mk, setMk }: MP) {
                 <KV cls="grand" label="Total para apartar" value={apart} />
                 <p className="muted small">Pásalo a otra cuenta el día que cobras. Así no te gastas dinero que ya tiene dueño.</p>
               </section>
-              <FileBtn label="Descargar reporte del mes en PDF" name={slug(st.clinic.name) + "-resultados-" + mk + ".pdf"} make={() => pdfMonth(st, mk)} />
+              <WhatsAppBtn label="Mandar a mi contador por WhatsApp" text={"Reporte de " + mlow(mk) + (st.clinic.name ? " de " + st.clinic.name : "") + ": cobré " + money(pl.ing) + " y me quedaron " + money(pl.net) + " libres. Va el PDF con el estado de resultados."} name={slug(st.clinic.name) + "-resultados-" + mk + ".pdf"} make={() => pdfMonth(st, mk)} />
+              <FileBtn cls="ghost" label="Descargar reporte del mes en PDF" name={slug(st.clinic.name) + "-resultados-" + mk + ".pdf"} make={() => pdfMonth(st, mk)} />
             </>
           ) : (
             <section className="panel"><h3>Estado de resultados</h3><p className="muted">Registra lo que atendiste en {mlow(mk)} y aquí aparece tu estado de resultados.</p></section>

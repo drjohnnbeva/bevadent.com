@@ -23,6 +23,8 @@ export interface QuoteItem { tid: string; name: string; qty: Numish; price: Numi
 export interface Quote {
   id: string; folio: string; patient: string; date: string; items: QuoteItem[];
   discount: Numish; payment: string; notes: string;
+  /** WhatsApp del paciente, para abrir su chat con el presupuesto */
+  phone?: string;
 }
 export interface State {
   v: 2;

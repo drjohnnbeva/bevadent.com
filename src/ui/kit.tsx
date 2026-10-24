@@ -23,6 +23,7 @@ export const I = {
   dots: ic(<><circle cx="12" cy="5" r="1.2" fill="currentColor" /><circle cx="12" cy="12" r="1.2" fill="currentColor" /><circle cx="12" cy="19" r="1.2" fill="currentColor" /></>),
   plusSq: ic(<><rect x="4" y="4" width="16" height="16" rx="4" /><path d="M12 8v8M8 12h8" /></>),
   phone: ic(<><rect x="7" y="2.5" width="10" height="19" rx="2.5" /><path d="M11 18.5h2" /></>),
+  chat: ic(<path d="M4 20l1.4-4A8 8 0 1 1 8 18.6z" />),
   plus: ic(<path d="M12 5v14M5 12h14" />),
   minus: ic(<path d="M5 12h14" />),
   x: ic(<path d="M6 6l12 12M18 6L6 18" />),
@@ -222,13 +223,13 @@ export function CopyBtn({ text, label }: { text: string; label?: string }) {
     </div>
   );
 }
-export function FileBtn({ label, name, make }: { label: string; name: string; make: () => Promise<Blob | string> }) {
+export function FileBtn({ label, name, make, cls = "" }: { label: string; name: string; make: () => Promise<Blob | string>; cls?: string }) {
   const { saver, toast } = useApp();
   const [busy, setBusy] = useState(false);
   if (saver === undefined) return null;
   if (!saver) return <p className="muted small">Aquí no se pueden descargar archivos. Usa el botón de copiar texto.</p>;
   return (
-    <button className="btn" disabled={busy} onClick={async () => {
+    <button className={"btn " + cls} disabled={busy} onClick={async () => {
       setBusy(true);
       try {
         const r = await saveFile(saver, name, await make());
@@ -237,6 +238,40 @@ export function FileBtn({ label, name, make }: { label: string; name: string; ma
       setBusy(false);
     }}><I.file />{busy ? "Preparando…" : label}</button>
   );
+}
+/** Número de WhatsApp para wa.me: 10 dígitos de México llevan 52 adelante. */
+export const waPhone = (p = "") => { const d = p.replace(/\D/g, ""); return d.length === 10 ? "52" + d : d; };
+export const waLink = (text: string, phone = "") => "https://wa.me/" + waPhone(phone) + "?text=" + encodeURIComponent(text);
+
+/**
+ * Mandar por WhatsApp. En el teléfono abre el menú de compartir con el PDF (se elige WhatsApp y el contacto);
+ * en la computadora, o si hay teléfono del paciente, abre WhatsApp con el texto listo.
+ * El PDF se prepara antes del toque: Safari solo deja compartir justo después de tocar.
+ */
+export function WhatsAppBtn({ text, name, make, phone = "", label = "Mandar por WhatsApp", cls = "" }: { text: string; name?: string; make?: () => Promise<Blob>; phone?: string; label?: string; cls?: string }) {
+  const { toast } = useApp();
+  const direct = waPhone(phone).length >= 12;
+  // El PDF se comparte solo en teléfono y tableta; en la computadora se abre WhatsApp Web con el texto.
+  const canFiles = !!make && !direct && typeof navigator !== "undefined" && typeof navigator.canShare === "function" && matchMedia("(pointer: coarse)").matches;
+  const [file, setFile] = useState<File | null>(null), [failed, setFailed] = useState(false);
+  const makeRef = useRef(make); makeRef.current = make;
+  useEffect(() => {
+    if (!canFiles) return;
+    let on = true;
+    const t = setTimeout(async () => {
+      try { const b = await makeRef.current!(); if (on) setFile(new File([b], name || "archivo.pdf", { type: "application/pdf" })); } catch { if (on) setFailed(true); }
+    }, 500);
+    return () => { on = false; clearTimeout(t); };
+  }, [canFiles, text, name]);
+  const send = async () => {
+    if (canFiles && file && navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file], text }); return; }
+      catch (e: any) { if (e?.name === "AbortError") return; }
+    }
+    if (canFiles && !file && !failed) { toast("Preparando el PDF… toca otra vez en un momento."); return; }
+    window.open(waLink(text, phone), "_blank", "noopener");
+  };
+  return <button className={"btn wa " + cls} onClick={send}><I.chat />{direct ? label + " al paciente" : label}</button>;
 }
 export function KV({ label, value, cls = "", neg }: { label: ReactNode; value: number; cls?: string; neg?: boolean }) {
   return (

@@ -6,6 +6,7 @@ import { can, FREE_TREATS } from "../../lib/plans";
 import { cleanNum, I, Locked, Num, Seg, Title, Txt } from "../../ui/kit";
 import { useApp } from "../ctx";
 import { treatmentPath } from "../router";
+import { Templates } from "./Templates";
 import { TreatList, TreatTable } from "./Treatlist";
 
 export function Treatments() {
@@ -28,6 +29,7 @@ export function Treatments() {
           </section>
           {canAdd ? <button className="btn ghost auto" onClick={add}><I.plus />Agregar tratamiento</button>
             : <Locked need="plus" title="Agrega todos tus tratamientos">En Gratis puedes tener hasta {FREE_TREATS}. Con Plus agregas los que quieras: carillas, implantes, blanqueamiento, ortopedia.</Locked>}
+          <Templates open={!st.edited} />
         </>
       ) : <Materials />}
     </div>

@@ -125,3 +125,29 @@ describe("datos", () => {
     expect(money(-0.2)).toBe("$0");
   });
 });
+
+describe("plantillas por especialidad", () => {
+  it("agrega sin repetir tratamientos y reutiliza materiales con el mismo nombre", async () => {
+    const { applySpecialty, SPECIALTIES } = await import("../src/lib/templates");
+    const st = makeDemo(), general = SPECIALTIES.find((s) => s.id === "general")!;
+    const r = applySpecialty(st, general);
+    // Resina y Extracción simple ya estaban en el ejemplo
+    expect(r.added).toBe(general.list.length - 2);
+    expect(r.state.order.length).toBe(st.order.length + r.added);
+    expect(r.state.materials.filter((m) => m.name === "Anestesia (cartucho)").length).toBe(1);
+    const inc = Object.values(r.state.treatments).find((t) => t.name === "Incrustación")!;
+    expect(inc.lab).toBe(1500);
+    for (const [id] of inc.items) expect(r.state.materials.some((m) => m.id === id)).toBe(true);
+  });
+  it("respeta el límite del plan Gratis y puede reemplazar los tratamientos", async () => {
+    const { applySpecialty, SPECIALTIES } = await import("../src/lib/templates");
+    const st = makeDemo(), ninos = SPECIALTIES.find((s) => s.id === "ninos")!;
+    const full = applySpecialty(st, ninos, { limit: 6 });
+    expect(full.added).toBe(0); expect(full.skipped).toBe(ninos.list.length);
+    const only = applySpecialty(st, ninos, { replace: true, limit: 6 });
+    expect(only.state.order.length).toBe(6);
+    expect(Object.keys(only.state.treatments).length).toBe(6);
+    // el mes se sigue calculando sin los tratamientos que se quitaron
+    expect(monthPL(only.state, mkey()).ing).toBe(0);
+  });
+});

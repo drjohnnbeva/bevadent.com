@@ -32,7 +32,7 @@ export function Home() {
           </div>
           <ol className="bigsteps">
             <li><button onClick={() => go(PATH.clinic)}><span className="n">1</span><span className="t"><b>Tus gastos del mes</b><span>Renta, sueldos, luz y cuántas horas atiendes</span></span><I.chev /></button></li>
-            <li><button onClick={() => go(PATH.treatments)}><span className="n">2</span><span className="t"><b>Tus tratamientos</b><span>Cuánto dura cada uno y qué material usa</span></span><I.chev /></button></li>
+            <li><button onClick={() => go(PATH.treatments)}><span className="n">2</span><span className="t"><b>Tus tratamientos</b><span>Elige tu especialidad y ya vienen hechos; ajusta minutos y material</span></span><I.chev /></button></li>
             <li><button onClick={() => go(st.order[0] ? treatmentPath(st.order[0]) : PATH.treatments)}><span className="n">3</span><span className="t"><b>Cuánto cobrar</b><span>Tu precio mínimo y el recomendado</span></span><I.chev /></button></li>
           </ol>
         </section>

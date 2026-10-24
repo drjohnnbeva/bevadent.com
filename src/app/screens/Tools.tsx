@@ -6,7 +6,7 @@ import { N, fmtDate, money, round50, slug, today, uid } from "../../lib/format";
 import { isValidBackup, makeDemo, normalize, type Quote, type State } from "../../lib/model";
 import { pdfPriceList, pdfQuote, priceText, quoteText } from "../../lib/pdf";
 import { can, type PlanId } from "../../lib/plans";
-import { Back, Chips, cleanNum, Confirm, CopyBtn, FileBtn, I, KV, Locked, Num, Pill, Stepper, Tag, Title, Txt } from "../../ui/kit";
+import { Back, Chips, cleanNum, Confirm, CopyBtn, FileBtn, I, KV, Locked, Num, Pill, Stepper, Tag, Title, Txt, WhatsAppBtn } from "../../ui/kit";
 import { useApp } from "../ctx";
 import { PATH } from "../router";
 
@@ -99,8 +99,9 @@ export function PriceList() {
         </div>
         <div className="col">
           {wide && hint}
-          <FileBtn label="Descargar PDF con tu logo" name={slug(st.clinic.name) + "-lista-de-precios.pdf"} make={() => pdfPriceList(st)} />
-          <CopyBtn text={priceText(st)} label="Copiar para WhatsApp" />
+          <WhatsAppBtn text={priceText(st)} name={slug(st.clinic.name) + "-lista-de-precios.pdf"} make={() => pdfPriceList(st)} />
+          <FileBtn cls="ghost" label="Descargar PDF con tu logo" name={slug(st.clinic.name) + "-lista-de-precios.pdf"} make={() => pdfPriceList(st)} />
+          <CopyBtn text={priceText(st)} label="Copiar el texto" />
         </div>
       </div>
     </div>
@@ -189,6 +190,7 @@ function QuoteEditor({ q, close }: { q: Quote; close: () => void }) {
         <div className="col">
           <section className="panel"><div className="row">
             <Txt id="qpat" label="Paciente" value={q.patient} onChange={(v) => uq({ patient: v })} />
+            <Txt id="qphone" type="tel" autoComplete="off" label="WhatsApp del paciente (opcional)" placeholder="Ej. 452 123 4567" hint="Para abrir su chat con el presupuesto listo." value={q.phone || ""} onChange={(v) => uq({ phone: v })} />
             <div className="field w170"><label htmlFor="qdate">Fecha</label><div className="inp"><input id="qdate" className="txt" type="date" value={q.date} onChange={(e) => uq({ date: e.target.value })} /></div></div>
           </div></section>
           <section className="panel">
@@ -218,7 +220,11 @@ function QuoteEditor({ q, close }: { q: Quote; close: () => void }) {
             {qc.months > 0 && <p className="small">{qc.months} pagos de <b className="num">{money(qc.monthly)}</b></p>}
             <div className={"note " + (qc.profit < 0 ? "bad" : "plain")}>Solo lo ves tú: con este presupuesto {qc.profit < 0 ? "pierdes " + money(-qc.profit) : "ganas " + money(qc.profit)} aparte de tu sueldo{qc.months ? ", ya con la comisión de " + qc.months + " meses sin intereses" : ""}.</div>
           </section>
-          {q.items.length > 0 && <><FileBtn label="Descargar PDF para el paciente" name={slug(st.clinic.name) + "-presupuesto-" + q.folio + ".pdf"} make={() => pdfQuote(st, q)} /><CopyBtn text={quoteText(st, q)} label="Copiar para WhatsApp" /></>}
+          {q.items.length > 0 && <>
+            <WhatsAppBtn text={quoteText(st, q)} phone={q.phone} name={slug(st.clinic.name) + "-presupuesto-" + q.folio + ".pdf"} make={() => pdfQuote(st, q)} />
+            <FileBtn cls="ghost" label="Descargar PDF para el paciente" name={slug(st.clinic.name) + "-presupuesto-" + q.folio + ".pdf"} make={() => pdfQuote(st, q)} />
+            <CopyBtn text={quoteText(st, q)} label="Copiar el texto" />
+          </>}
           <Confirm label="Eliminar presupuesto" ask="¿Eliminar este presupuesto?" yes="Sí, eliminar" onYes={() => { set((s) => ({ ...s, quotes: s.quotes.filter((x) => x.id !== q.id) })); close(); }} />
         </div>
       </div>
